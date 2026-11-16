@@ -25,6 +25,8 @@ import kotlinx.coroutines.delay
 import android.content.Context
 import androidx.media3.exoplayer.audio.AudioSink
 import androidx.media3.exoplayer.audio.DefaultAudioSink
+import androidx.media3.common.PlaybackException
+import androidx.media3.common.Player
 
 class MainActivity : ComponentActivity() {
 
@@ -38,12 +40,12 @@ class MainActivity : ComponentActivity() {
         panProcessor = PanAudioProcessor()
 
         // 2. Initialize ExoPlayer with custom AudioSink for panning
-    val renderersFactory = object : DefaultRenderersFactory(this) {
-    override fun buildAudioSink(
+    //val renderersFactory = object : DefaultRenderersFactory(this) {
+    //override fun buildAudioSink(
         context: Context,
         enableFloatOutput: Boolean,
         enableAudioTrackPlaybackParams: Boolean
-    ): AudioSink? {
+   // ): AudioSink? {
         return DefaultAudioSink.Builder(context)
             .setAudioProcessors(arrayOf(panProcessor))
             .setEnableFloatOutput(enableFloatOutput)
@@ -52,12 +54,22 @@ class MainActivity : ComponentActivity() {
 }
 
 exoPlayer = ExoPlayer.Builder(this)
-    .setRenderersFactory(renderersFactory)
+  //  .setRenderersFactory(renderersFactory)
     .build()
         // 3. Load a test song (Replace with local file later)
-        val testAudioUrl = "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3"
-        exoPlayer.setMediaItem(MediaItem.fromUri(testAudioUrl))
-        exoPlayer.prepare()
+        exoPlayer.addListener(object : Player.Listener {
+    override fun onPlayerError(error: PlaybackException) {
+        // This will print the exact error to your phone's logcat
+        android.util.Log.e("TuiPan", "Player Error: ${error.message}", error)
+    }
+    override fun onPlaybackStateChanged(state: Int) {
+        android.util.Log.d("TuiPan", "Playback State: $state")
+    }
+})
+
+val testAudioUrl = "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3"
+exoPlayer.setMediaItem(MediaItem.fromUri(testAudioUrl))
+exoPlayer.prepare()
 
         setContent {
             MaterialTheme(
