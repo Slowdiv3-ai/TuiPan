@@ -10,6 +10,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
@@ -77,49 +78,56 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-fun TerminalScreen(player: ExoPlayer, panProcessor: PanAudioProcessor) {
-    var isPlaying by remember { mutableStateOf(false) }
-    var activeTab by remember { mutableStateOf(3) }
-    var currentTrackName by remember { mutableStateOf("No file selected") }
-    var currentPanValue by remember { mutableStateOf(0f) }
-    
-    val panEngine = remember { PanEngine(panProcessor) { newVal -> currentPanValue = newVal } }
-    var selectedPattern by remember { mutableStateOf("smooth") }
-    var speed by remember { mutableStateOf(1.0f) }
+fun TerminalSlider(
+    value: Float,
+    onValueChange: (Float) -> Unit,
+    range: ClosedFloatingPointRange<Float>
+) {
+    val barLength = 20
+    val progress = ((value - range.start) / (range.endInclusive - range.start)).coerceIn(0f, 1f)
+    val filled = (progress * barLength).toInt().coerceIn(0, barLength)
 
-    LaunchedEffect(selectedPattern, speed) {
-        panEngine.pattern = selectedPattern
-        panEngine.speed = speed
+    val asciiBar = buildString {
+        append("|".repeat(filled))
+        append(".".repeat(barLength - filled))
     }
 
-    val context = LocalContext.current
-    val filePickerLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.GetContent()
-    ) { uri: Uri? ->
-        if (uri != null) {
-            player.setMediaItem(MediaItem.fromUri(uri))
-            player.prepare()
-            currentTrackName = uri.lastPathSegment ?: "Unknown File"
-            player.play()
-            isPlaying = true
-            panEngine.reset()
-            panEngine.start()
-        }
-    }
-
-    Column(
+    Box(
         modifier = Modifier
-            .fillMaxSize()
-            .background(Color.Black)
-            .padding(16.dp)
+            .fillMaxWidth()
+            .height(48.dp)
+            .pointerInput(range) {
+                detectTapGestures { offset ->
+                    val newProgress = (offset.x / size.width).coerceIn(0f, 1f)
+                    val newValue = range.start + newProgress * (range.endInclusive - range.start)
+                    onValueChange(newValue)
+                }
+            }
+            .pointerInput(range) {
+                detectDragGestures(
+                    onDragStart = { offset ->
+                        val newProgress = (offset.x / size.width).coerceIn(0f, 1f)
+                        val newValue = range.start + newProgress * (range.endInclusive - range.start)
+                        onValueChange(newValue)
+                    },
+                    onDrag = { change, _ ->
+                        change.consume()
+                        val newProgress = (change.position.x / size.width).coerceIn(0f, 1f)
+                        val newValue = range.start + newProgress * (range.endInclusive - range.start)
+                        onValueChange(newValue)
+                    }
+                )
+            },
+        contentAlignment = Alignment.CenterStart
     ) {
         Text(
-            text = "■ TuiPan - Pan Module",
+            text = "[$asciiBar]",
             fontFamily = FontFamily.Monospace,
-            color = Color.White,
-            fontSize = 18.sp,
-            fontWeight = FontWeight.Bold
+            color = Color(0xFFFFB300),
+            fontSize = 16.sp
         )
+    }
+}
         
         Divider(color = Color.DarkGray, modifier = Modifier.padding(vertical = 12.dp))
 
