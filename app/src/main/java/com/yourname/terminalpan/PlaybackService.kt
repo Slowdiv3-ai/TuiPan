@@ -1,12 +1,18 @@
 package com.yourname.terminalpan
 
 import android.content.Context
+import android.os.Bundle
+import androidx.media3.common.Player
 import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.audio.AudioSink
 import androidx.media3.exoplayer.audio.DefaultAudioSink
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
+import androidx.media3.session.SessionCommand
+import androidx.media3.session.SessionResult
+import com.google.common.util.concurrent.Futures
+import com.google.common.util.concurrent.ListenableFuture
 
 class PlaybackService : MediaSessionService() {
 
@@ -39,9 +45,44 @@ class PlaybackService : MediaSessionService() {
             .setHandleAudioBecomingNoisy(true)
             .build()
 
-        panEngine = PanEngine(panProcessor) { /* UI will observe via player or state */ }
+        panEngine = PanEngine(panProcessor) { /* UI updates independently */ }
 
-        mediaSession = MediaSession.Builder(this, player).build()
+        val sessionCallback = object : MediaSession.Callback {
+            override fun onConnect(
+                session: MediaSession,
+                controller: MediaSession.ControllerInfo
+            ): MediaSession.ConnectionResult {
+                val availableCommands = MediaSession.ConnectionResult.DEFAULT_SESSION_COMMANDS.buildUpon()
+                    .add(SessionCommand("SET_PAN", Bundle.EMPTY))
+                    .add(SessionCommand("START_PAN", Bundle.EMPTY))
+                    .add(SessionCommand("STOP_PAN", Bundle.EMPTY))
+                    .build()
+                return MediaSession.ConnectionResult.accept(availableCommands, Player.Commands.EMPTY)
+            }
+
+            override fun onCustomCommand(
+                session: MediaSession,
+                controller: MediaSession.ControllerInfo,
+                customCommand: SessionCommand,
+                args: Bundle
+            ): ListenableFuture<SessionResult> {
+                when (customCommand.customAction) {
+                    "SET_PAN" -> {
+                        val pattern = args.getString("pattern") ?: "smooth"
+                        val speed = args.getFloat("speed", 1.0f)
+                        panEngine.pattern = pattern
+                        panEngine.speed = speed
+                    }
+                    "START_PAN" -> panEngine.start()
+                    "STOP_PAN" -> panEngine.stop()
+                }
+                return Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS))
+            }
+        }
+
+        mediaSession = MediaSession.Builder(this, player)
+            .setCallback(sessionCallback)
+            .build()
     }
 
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? {
