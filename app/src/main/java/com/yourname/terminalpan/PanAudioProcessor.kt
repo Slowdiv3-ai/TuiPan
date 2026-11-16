@@ -19,27 +19,32 @@ class PanAudioProcessor : BaseAudioProcessor() {
     }
 
     override fun queueInput(inputBuffer: ByteBuffer) {
+        // Make sure the output buffer is large enough
         val outputBuffer = replaceOutputBuffer(inputBuffer.remaining())
         val channelCount = inputAudioFormat.channelCount
 
         if (channelCount == 2) {
             while (inputBuffer.hasRemaining()) {
+                // Read Left and Right samples
                 val leftSample = inputBuffer.short
                 val rightSample = inputBuffer.short
 
-                // Volume multipliers
+                // Calculate volume (0.0 to 1.0)
                 val leftVolume = if (panValue > 0) 1.0f - panValue else 1.0f
                 val rightVolume = if (panValue < 0) 1.0f + panValue else 1.0f
 
-                val pannedLeft = (leftSample * leftVolume).toInt().toShort()
-                val pannedRight = (rightSample * rightVolume).toInt().toShort()
+                // Apply volume and clamp to Short range (-32768 to 32767) to prevent distortion
+                val pannedLeft = (leftSample * leftVolume).toInt().coerceIn(-32768, 32767).toShort()
+                val pannedRight = (rightSample * rightVolume).toInt().coerceIn(-32768, 32767).toShort()
 
                 outputBuffer.putShort(pannedLeft)
                 outputBuffer.putShort(pannedRight)
             }
         } else {
+            // If not stereo, just pass through without panning
             outputBuffer.put(inputBuffer)
         }
+        
         outputBuffer.flip()
     }
 }
