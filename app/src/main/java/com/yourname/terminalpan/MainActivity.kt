@@ -1,8 +1,11 @@
 package com.yourname.terminalpan
 
+import android.net.Uri
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -12,6 +15,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -20,7 +24,6 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
-import kotlinx.coroutines.delay
 
 class MainActivity : ComponentActivity() {
 
@@ -29,23 +32,13 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        // 1. Initialize ExoPlayer (NO custom processor for now)
         exoPlayer = ExoPlayer.Builder(this).build()
 
-        // 2. Add listener to check for errors
         exoPlayer.addListener(object : Player.Listener {
             override fun onPlayerError(error: PlaybackException) {
                 android.util.Log.e("TuiPan", "PLAYER ERROR: ${error.message}", error)
             }
-            override fun onPlaybackStateChanged(state: Int) {
-                android.util.Log.d("TuiPan", "PLAYER STATE: $state")
-            }
         })
-
-        // 3. Load test audio
-        val testAudioUrl = "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3"
-        exoPlayer.setMediaItem(MediaItem.fromUri(testAudioUrl))
-        exoPlayer.prepare()
 
         setContent {
             MaterialTheme(
@@ -70,6 +63,27 @@ class MainActivity : ComponentActivity() {
 fun TerminalScreen(player: ExoPlayer) {
     var isPlaying by remember { mutableStateOf(false) }
     var activeTab by remember { mutableStateOf(3) }
+    var currentTrackName by remember { mutableStateOf("No file selected") }
+    val context = LocalContext.current
+
+    // This is the launcher that opens the Android file picker
+    val filePickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent()
+    ) { uri: Uri? ->
+        if (uri != null) {
+            // User picked a file, load it into ExoPlayer
+            val mediaItem = MediaItem.fromUri(uri)
+            player.setMediaItem(mediaItem)
+            player.prepare()
+            
+            // Try to get the file name (just a simple string representation for now)
+            currentTrackName = uri.lastPathSegment ?: "Unknown File"
+            
+            // Auto-play
+            player.play()
+            isPlaying = true
+        }
+    }
 
     Column(
         modifier = Modifier
@@ -77,9 +91,8 @@ fun TerminalScreen(player: ExoPlayer) {
             .background(Color.Black)
             .padding(16.dp)
     ) {
-        // Header
         Text(
-            text = "■ TuiPan - v1.0 (Audio Test)",
+            text = "■ TuiPan - v1.0 (Local Audio Test)",
             fontFamily = FontFamily.Monospace,
             color = Color.White,
             fontSize = 18.sp,
@@ -88,21 +101,26 @@ fun TerminalScreen(player: ExoPlayer) {
         
         Divider(color = Color.DarkGray, modifier = Modifier.padding(vertical = 12.dp))
 
-        // Content Area
         Box(modifier = Modifier.weight(1f)) {
             if (activeTab == 3) {
-                Text(
-                    text = "// Audio Test Mode\n\nNo panning processor active.\nIf you hear music, the network \nand ExoPlayer are working fine.",
-                    color = Color.Gray,
-                    fontFamily = FontFamily.Monospace,
-                    lineHeight = 24.sp
-                )
+                Column {
+                    Text(
+                        text = "// Local Audio Mode\n",
+                        color = Color.Gray,
+                        fontFamily = FontFamily.Monospace,
+                    )
+                    Text(
+                        text = "Loaded: $currentTrackName",
+                        color = Color(0xFFFFB300),
+                        fontFamily = FontFamily.Monospace,
+                        lineHeight = 24.sp
+                    )
+                }
             } else {
                 Text("Empty Tab", color = Color.Gray, fontFamily = FontFamily.Monospace)
             }
         }
 
-        // Playback Controls
         Row(
             modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
@@ -115,6 +133,12 @@ fun TerminalScreen(player: ExoPlayer) {
             )
             
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                // NEW: File Picker Button
+                BracketButton("open") {
+                    // "audio/*" tells the picker to only show audio files
+                    filePickerLauncher.launch("audio/*")
+                }
+                
                 BracketButton("play") {
                     if (!isPlaying) {
                         player.play()
@@ -132,7 +156,6 @@ fun TerminalScreen(player: ExoPlayer) {
             }
         }
 
-        // Bottom Nav
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceEvenly
