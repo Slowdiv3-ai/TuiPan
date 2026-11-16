@@ -179,7 +179,7 @@ fun TerminalScreen(player: ExoPlayer, panProcessor: PanAudioProcessor) {
                     TerminalSlider(
                         value = speed,
                         onValueChange = { speed = it },
-                        range = 0.1f..5.0f
+                        range = 0.05f..2.0f
                     )
                 }
             } else {
