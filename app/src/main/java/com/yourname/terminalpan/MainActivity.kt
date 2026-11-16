@@ -1,14 +1,12 @@
 package com.yourname.terminalpan
 
 import android.os.Bundle
-import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -19,67 +17,45 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.media3.common.MediaItem
-import androidx.media3.exoplayer.DefaultRenderersFactory
-import androidx.media3.exoplayer.ExoPlayer
-import kotlinx.coroutines.delay
-import android.content.Context
-import androidx.media3.exoplayer.audio.AudioSink
-import androidx.media3.exoplayer.audio.DefaultAudioSink
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
+import androidx.media3.exoplayer.ExoPlayer
+import kotlinx.coroutines.delay
 
 class MainActivity : ComponentActivity() {
 
     private lateinit var exoPlayer: ExoPlayer
-    private lateinit var panProcessor: PanAudioProcessor
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        // 1. Initialize the Audio Processor
-        panProcessor = PanAudioProcessor()
+        // 1. Initialize ExoPlayer (NO custom processor for now)
+        exoPlayer = ExoPlayer.Builder(this).build()
 
-        // 2. Initialize ExoPlayer with custom AudioSink for panning
-    //val renderersFactory = object : DefaultRenderersFactory(this) {
-    //override fun buildAudioSink(
-        context: Context,
-        enableFloatOutput: Boolean,
-        enableAudioTrackPlaybackParams: Boolean
-   // ): AudioSink? {
-        return DefaultAudioSink.Builder(context)
-            .setAudioProcessors(arrayOf(panProcessor))
-            .setEnableFloatOutput(enableFloatOutput)
-            .build()
-    }
-}
-
-exoPlayer = ExoPlayer.Builder(this)
-  //  .setRenderersFactory(renderersFactory)
-    .build()
-        // 3. Load a test song (Replace with local file later)
+        // 2. Add listener to check for errors
         exoPlayer.addListener(object : Player.Listener {
-    override fun onPlayerError(error: PlaybackException) {
-        // This will print the exact error to your phone's logcat
-        android.util.Log.e("TuiPan", "Player Error: ${error.message}", error)
-    }
-    override fun onPlaybackStateChanged(state: Int) {
-        android.util.Log.d("TuiPan", "Playback State: $state")
-    }
-})
+            override fun onPlayerError(error: PlaybackException) {
+                android.util.Log.e("TuiPan", "PLAYER ERROR: ${error.message}", error)
+            }
+            override fun onPlaybackStateChanged(state: Int) {
+                android.util.Log.d("TuiPan", "PLAYER STATE: $state")
+            }
+        })
 
-val testAudioUrl = "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3"
-exoPlayer.setMediaItem(MediaItem.fromUri(testAudioUrl))
-exoPlayer.prepare()
+        // 3. Load test audio
+        val testAudioUrl = "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3"
+        exoPlayer.setMediaItem(MediaItem.fromUri(testAudioUrl))
+        exoPlayer.prepare()
 
         setContent {
             MaterialTheme(
                 colorScheme = darkColorScheme(
                     background = Color.Black,
                     surface = Color.Black,
-                    primary = Color(0xFFFFB300) // Amber
+                    primary = Color(0xFFFFB300)
                 )
             ) {
-                TerminalScreen(exoPlayer, panProcessor)
+                TerminalScreen(exoPlayer)
             }
         }
     }
@@ -91,28 +67,10 @@ exoPlayer.prepare()
 }
 
 @Composable
-fun TerminalScreen(player: ExoPlayer, panProcessor: PanAudioProcessor) {
+fun TerminalScreen(player: ExoPlayer) {
     var isPlaying by remember { mutableStateOf(false) }
-    var panValue by remember { mutableStateOf(0f) }
-    var activeTab by remember { mutableStateOf(3) } // 0=~, 1=&, 2=?, 3=pan, 4=cfg
+    var activeTab by remember { mutableStateOf(3) }
 
-    // Coroutine to animate the pan value over time (Auto-pan sine wave)
-    LaunchedEffect(isPlaying) {
-        var time = 0f
-        while (isPlaying) {
-            // Speed control: 0.1f means 1 full cycle takes 10 seconds
-            val speed = 0.2f 
-            
-            // Calculate pan value using sine wave (-1.0 to 1.0) scaled to depth (0.8)
-            val newPan = (kotlin.math.sin(time) * 0.8).toFloat()
-            
-            panValue = newPan
-            panProcessor.panValue = newPan // Send to audio engine
-            
-            delay(50) // Update 20 times a second
-            time += speed * 0.05f // Increment time based on speed and delay
-        }
-    }
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -121,7 +79,7 @@ fun TerminalScreen(player: ExoPlayer, panProcessor: PanAudioProcessor) {
     ) {
         // Header
         Text(
-            text = "■ TerminalPan - v1.0",
+            text = "■ TuiPan - v1.0 (Audio Test)",
             fontFamily = FontFamily.Monospace,
             color = Color.White,
             fontSize = 18.sp,
@@ -130,11 +88,17 @@ fun TerminalScreen(player: ExoPlayer, panProcessor: PanAudioProcessor) {
         
         Divider(color = Color.DarkGray, modifier = Modifier.padding(vertical = 12.dp))
 
-        // Content Area based on Tab
+        // Content Area
         Box(modifier = Modifier.weight(1f)) {
-            when (activeTab) {
-                3 -> PanControlScreen(panValue)
-                else -> Text("Empty Terminal Tab", color = Color.Gray, fontFamily = FontFamily.Monospace)
+            if (activeTab == 3) {
+                Text(
+                    text = "// Audio Test Mode\n\nNo panning processor active.\nIf you hear music, the network \nand ExoPlayer are working fine.",
+                    color = Color.Gray,
+                    fontFamily = FontFamily.Monospace,
+                    lineHeight = 24.sp
+                )
+            } else {
+                Text("Empty Tab", color = Color.Gray, fontFamily = FontFamily.Monospace)
             }
         }
 
@@ -164,12 +128,11 @@ fun TerminalScreen(player: ExoPlayer, panProcessor: PanAudioProcessor) {
                     player.pause()
                     player.seekTo(0)
                     isPlaying = false
-                    panProcessor.panValue = 0f
                 }
             }
         }
 
-        // Bottom Navigation
+        // Bottom Nav
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceEvenly
@@ -181,41 +144,6 @@ fun TerminalScreen(player: ExoPlayer, panProcessor: PanAudioProcessor) {
                 }
             }
         }
-    }
-}
-
-@Composable
-fun PanControlScreen(currentPan: Float) {
-    Column(modifier = Modifier.fillMaxSize()) {
-        Text("// AutoPan Engine", color = Color.Gray, fontFamily = FontFamily.Monospace)
-        Spacer(modifier = Modifier.height(32.dp))
-        
-        // Visual ASCII representation of the pan
-        val barLength = 20
-        val center = barLength / 2
-        val pos = (center + (currentPan * center)).toInt().coerceIn(0, barLength - 1)
-        
-        val asciiBar = buildString {
-            for (i in 0 until barLength) {
-                if (i == pos) append("o") else append("-")
-            }
-        }
-
-        Text(
-            text = "[ $asciiBar ]",
-            fontFamily = FontFamily.Monospace,
-            color = Color(0xFFFFB300),
-            fontSize = 20.sp,
-            modifier = Modifier.align(Alignment.CenterHorizontally)
-        )
-        
-        Spacer(modifier = Modifier.height(16.dp))
-        Text(
-            text = String.format("Val: %+.2f", currentPan),
-            fontFamily = FontFamily.Monospace,
-            color = Color.White,
-            modifier = Modifier.align(Alignment.CenterHorizontally)
-        )
     }
 }
 
