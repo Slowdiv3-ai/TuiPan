@@ -27,6 +27,7 @@ import androidx.compose.ui.unit.sp
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
 import androidx.media3.session.MediaController
+import androidx.media3.session.SessionCommand
 import androidx.media3.session.SessionToken
 import com.google.common.util.concurrent.ListenableFuture
 import com.google.common.util.concurrent.MoreExecutors
@@ -39,7 +40,6 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        // Connect to the PlaybackService
         val sessionToken = SessionToken(this, ComponentName(this, PlaybackService::class.java))
         controllerFuture = MediaController.Builder(this, sessionToken).buildAsync()
 
@@ -66,7 +66,6 @@ class MainActivity : ComponentActivity() {
 fun AppContent(controllerFuture: ListenableFuture<MediaController>?) {
     var controller by remember { mutableStateOf<MediaController?>(null) }
 
-    // Wait for the controller to connect to the service
     LaunchedEffect(controllerFuture) {
         controllerFuture?.let {
             it.addListener({
@@ -94,7 +93,6 @@ fun TerminalScreen(player: MediaController) {
     var selectedPattern by remember { mutableStateOf("smooth") }
     var speed by remember { mutableStateOf(1.0f) }
 
-    // Listen to Player state changes
     DisposableEffect(player) {
         val listener = object : Player.Listener {
             override fun onIsPlayingChanged(isPlayingNow: Boolean) {
@@ -105,9 +103,16 @@ fun TerminalScreen(player: MediaController) {
         onDispose { player.removeListener(listener) }
     }
 
-    // We need a fake pan visualizer for the UI since the engine is in the Service.
-    // In a production app, we'd send the pan value via a StateFlow, but for now, 
-    // we simulate the visualizer locally for the UI.
+    // Send command to Service when pattern/speed changes
+    LaunchedEffect(selectedPattern, speed) {
+        val args = Bundle().apply {
+            putString("pattern", selectedPattern)
+            putFloat("speed", speed)
+        }
+        player.sendCustomCommand(SessionCommand("SET_PAN", Bundle.EMPTY), args)
+    }
+
+    // Fake UI visualizer (Service handles actual audio)
     LaunchedEffect(isPlaying, selectedPattern, speed) {
         if (isPlaying) {
             var time = 0f
@@ -193,11 +198,18 @@ fun TerminalScreen(player: MediaController) {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 BracketButton("open") { filePickerLauncher.launch("audio/*") }
                 BracketButton("play") {
-                    if (!isPlaying) player.play() else player.pause()
+                    if (!isPlaying) {
+                        player.play()
+                        player.sendCustomCommand(SessionCommand("START_PAN", Bundle.EMPTY), Bundle.EMPTY)
+                    } else {
+                        player.pause()
+                        player.sendCustomCommand(SessionCommand("STOP_PAN", Bundle.EMPTY), Bundle.EMPTY)
+                    }
                 }
                 BracketButton("stop") {
                     player.pause()
                     player.seekTo(0)
+                    player.sendCustomCommand(SessionCommand("STOP_PAN", Bundle.EMPTY), Bundle.EMPTY)
                 }
             }
         }
