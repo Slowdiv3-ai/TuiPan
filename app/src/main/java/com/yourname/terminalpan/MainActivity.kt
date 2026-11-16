@@ -10,7 +10,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -83,12 +83,10 @@ fun TerminalScreen(player: ExoPlayer, panProcessor: PanAudioProcessor) {
     var currentTrackName by remember { mutableStateOf("No file selected") }
     var currentPanValue by remember { mutableStateOf(0f) }
     
-    // Pan Engine State
     val panEngine = remember { PanEngine(panProcessor) { newVal -> currentPanValue = newVal } }
     var selectedPattern by remember { mutableStateOf("smooth") }
     var speed by remember { mutableStateOf(1.0f) }
 
-    // Sync engine settings with UI state
     LaunchedEffect(selectedPattern, speed) {
         panEngine.pattern = selectedPattern
         panEngine.speed = speed
@@ -136,7 +134,6 @@ fun TerminalScreen(player: ExoPlayer, panProcessor: PanAudioProcessor) {
                     
                     Spacer(modifier = Modifier.height(16.dp))
                     
-                    // ASCII Visualizer
                     val barLength = 20
                     val center = barLength / 2
                     val pos = (center + (currentPanValue * center)).toInt().coerceIn(0, barLength - 1)
@@ -156,13 +153,14 @@ fun TerminalScreen(player: ExoPlayer, panProcessor: PanAudioProcessor) {
                     
                     Spacer(modifier = Modifier.height(32.dp))
                     
-                    // Pattern Selection
+                    // Pattern Selection (Removed "hard")
                     Text("pattern", color = Color.Gray, fontFamily = FontFamily.Monospace)
                     Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                        val patterns = listOf("smooth", "wave", "subtle", "hard")
+                        val patterns = listOf("smooth", "wave", "subtle")
                         patterns.forEach { p ->
                             BracketButton(p, isActive = selectedPattern == p) {
                                 selectedPattern = p
+                                panEngine.reset()
                             }
                         }
                     }
@@ -171,6 +169,7 @@ fun TerminalScreen(player: ExoPlayer, panProcessor: PanAudioProcessor) {
                     
                     // Speed Slider
                     Text("speed [${String.format("%.1f", speed)}x]", color = Color.Gray, fontFamily = FontFamily.Monospace)
+                    Spacer(modifier = Modifier.height(8.dp))
                     TerminalSlider(
                         value = speed,
                         onValueChange = { speed = it },
@@ -229,9 +228,8 @@ fun TerminalSlider(
     onValueChange: (Float) -> Unit,
     range: ClosedFloatingPointRange<Float>
 ) {
-    // A custom ASCII slider that looks like a terminal progress bar
     val barLength = 20
-    val progress = (value - range.start) / (range.endInclusive - range.start)
+    val progress = ((value - range.start) / (range.endInclusive - range.start)).coerceIn(0f, 1f)
     val filled = (progress * barLength).toInt().coerceIn(0, barLength)
     
     val asciiBar = buildString {
@@ -243,15 +241,30 @@ fun TerminalSlider(
         modifier = Modifier
             .fillMaxWidth()
             .height(48.dp)
-            .pointerInput(Unit) {
-                detectHorizontalDragGestures { change, dragAmount ->
-                    change.consume()
-                    val newProgress = (progress + dragAmount / size.width).coerceIn(0f, 1f)
+            .pointerInput(range) {
+                // Tap to set position instantly
+                detectTapGestures { offset ->
+                    val newProgress = (offset.x / size.width).coerceIn(0f, 1f)
                     val newValue = range.start + newProgress * (range.endInclusive - range.start)
                     onValueChange(newValue)
                 }
             }
-            .clickable { /* Can add tap-to-set logic here if needed */ },
+            .pointerInput(range) {
+                // Drag to smoothly scrub
+                androidx.compose.foundation.gestures.detectDragGestures(
+                    onDragStart = { offset ->
+                        val newProgress = (offset.x / size.width).coerceIn(0f, 1f)
+                        val newValue = range.start + newProgress * (range.endInclusive - range.start)
+                        onValueChange(newValue)
+                    },
+                    onDrag = { change, _ ->
+                        change.consume()
+                        val newProgress = (change.position.x / size.width).coerceIn(0f, 1f)
+                        val newValue = range.start + newProgress * (range.endInclusive - range.start)
+                        onValueChange(newValue)
+                    }
+                )
+            },
         contentAlignment = Alignment.CenterStart
     ) {
         Text(
