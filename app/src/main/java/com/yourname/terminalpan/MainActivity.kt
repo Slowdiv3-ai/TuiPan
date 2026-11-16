@@ -86,18 +86,21 @@ fun TerminalScreen(player: ExoPlayer, panProcessor: PanAudioProcessor) {
 
     // Coroutine to animate the pan value over time (Auto-pan sine wave)
     LaunchedEffect(isPlaying) {
+        var time = 0f
         while (isPlaying) {
-            // Simple sine wave auto-pan
-            val time = System.currentTimeMillis() / 1000.0
-            val newPan = (kotlin.math.sin(time * 2.0) * 0.8).toFloat() // Range -0.8 to 0.8
+            // Speed control: 0.1f means 1 full cycle takes 10 seconds
+            val speed = 0.2f 
+            
+            // Calculate pan value using sine wave (-1.0 to 1.0) scaled to depth (0.8)
+            val newPan = (kotlin.math.sin(time) * 0.8).toFloat()
             
             panValue = newPan
             panProcessor.panValue = newPan // Send to audio engine
             
             delay(50) // Update 20 times a second
+            time += speed * 0.05f // Increment time based on speed and delay
         }
     }
-
     Column(
         modifier = Modifier
             .fillMaxSize()
