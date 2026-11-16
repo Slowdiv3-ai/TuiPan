@@ -93,6 +93,7 @@ fun TerminalScreen(player: MediaController) {
     var selectedPattern by remember { mutableStateOf("smooth") }
     var speed by remember { mutableStateOf(1.0f) }
 
+    // Listen to actual player state
     DisposableEffect(player) {
         val listener = object : Player.Listener {
             override fun onIsPlayingChanged(isPlayingNow: Boolean) {
@@ -103,7 +104,7 @@ fun TerminalScreen(player: MediaController) {
         onDispose { player.removeListener(listener) }
     }
 
-    // Send command to Service when pattern/speed changes
+    // Sync UI settings to Service
     LaunchedEffect(selectedPattern, speed) {
         val args = Bundle().apply {
             putString("pattern", selectedPattern)
@@ -112,7 +113,7 @@ fun TerminalScreen(player: MediaController) {
         player.sendCustomCommand(SessionCommand("SET_PAN", Bundle.EMPTY), args)
     }
 
-    // Fake UI visualizer (Service handles actual audio)
+    // Fake UI visualizer
     LaunchedEffect(isPlaying, selectedPattern, speed) {
         if (isPlaying) {
             var time = 0f
@@ -128,6 +129,8 @@ fun TerminalScreen(player: MediaController) {
                 delay(50)
                 time += 0.05f
             }
+        } else {
+            currentPanValue = 0f
         }
     }
 
@@ -136,10 +139,16 @@ fun TerminalScreen(player: MediaController) {
         contract = ActivityResultContracts.GetContent()
     ) { uri: Uri? ->
         if (uri != null) {
+            // Set media item and tell the player to play
             player.setMediaItem(MediaItem.fromUri(uri))
             player.prepare()
             currentTrackName = uri.lastPathSegment ?: "Unknown File"
-            player.play()
+            
+            // This is crucial: play() on the controller triggers the Service to play
+            player.play() 
+            
+            // Also tell the Service to start the PanEngine
+            player.sendCustomCommand(SessionCommand("START_PAN", Bundle.EMPTY), Bundle.EMPTY)
         }
     }
 
@@ -199,8 +208,13 @@ fun TerminalScreen(player: MediaController) {
                 BracketButton("open") { filePickerLauncher.launch("audio/*") }
                 BracketButton("play") {
                     if (!isPlaying) {
-                        player.play()
-                        player.sendCustomCommand(SessionCommand("START_PAN", Bundle.EMPTY), Bundle.EMPTY)
+                        // If the player has no media, we can't play
+                        if (player.mediaItemCount == 0) {
+                            filePickerLauncher.launch("audio/*")
+                        } else {
+                            player.play()
+                            player.sendCustomCommand(SessionCommand("START_PAN", Bundle.EMPTY), Bundle.EMPTY)
+                        }
                     } else {
                         player.pause()
                         player.sendCustomCommand(SessionCommand("STOP_PAN", Bundle.EMPTY), Bundle.EMPTY)
