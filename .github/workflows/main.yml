@@ -19,17 +19,9 @@ jobs:
         java-version: '17'
         distribution: 'temurin'
 
-    # This specific action generates the gradlew files directly into your repo folder
-    - name: Generate Gradle Wrapper
-      uses: gradle/wrapper-validation-action@v1
-
+    # This single action handles validation, setup, AND caching
     - name: Setup Gradle
-      uses: gradle/gradle-build-action@v2
-      with:
-        gradle-version: 8.2
-
-    - name: Make gradlew executable
-      run: chmod +x gradlew
+      uses: gradle/actions/setup-gradle@v4
 
     - name: Build Debug APK
       run: ./gradlew assembleDebug
