@@ -6,6 +6,7 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -179,7 +180,8 @@ fun TerminalScreen(player: ExoPlayer, panProcessor: PanAudioProcessor) {
                     TerminalSlider(
                         value = speed,
                         onValueChange = { speed = it },
-                        range = 0.05f..2.0f
+                        range = 0.05f..2.0f,
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 0.dp) // Edge to Edge
                     )
                 }
             } else {
@@ -232,20 +234,11 @@ fun TerminalScreen(player: ExoPlayer, panProcessor: PanAudioProcessor) {
 fun TerminalSlider(
     value: Float,
     onValueChange: (Float) -> Unit,
-    range: ClosedFloatingPointRange<Float>
+    range: ClosedFloatingPointRange<Float>,
+    modifier: Modifier = Modifier
 ) {
-    val barLength = 20
-    val progress = ((value - range.start) / (range.endInclusive - range.start)).coerceIn(0f, 1f)
-    val filled = (progress * barLength).toInt().coerceIn(0, barLength)
-
-    val asciiBar = buildString {
-        append("|".repeat(filled))
-        append(".".repeat(barLength - filled))
-    }
-
-    Box(
-        modifier = Modifier
-            .fillMaxWidth()
+    BoxWithConstraints(
+        modifier = modifier // Use the passed modifier
             .height(48.dp)
             .pointerInput(range) {
                 detectTapGestures { offset ->
@@ -271,11 +264,24 @@ fun TerminalSlider(
             },
         contentAlignment = Alignment.CenterStart
     ) {
+        // Calculate how many characters can fit based on the width (approx 10dp per char)
+        val charWidth = 10.dp // Approximate width of a monospace character
+        val barLength = (maxWidth / charWidth).toInt().coerceAtLeast(10)
+        
+        val progress = ((value - range.start) / (range.endInclusive - range.start)).coerceIn(0f, 1f)
+        val filled = (progress * barLength).toInt().coerceIn(0, barLength)
+
+        val asciiBar = buildString {
+            append("|".repeat(filled))
+            append(".".repeat(barLength - filled))
+        }
+
         Text(
             text = "[$asciiBar]",
             fontFamily = FontFamily.Monospace,
             color = Color(0xFFFFB300),
-            fontSize = 16.sp
+            fontSize = 14.sp, // Slightly smaller to fit more chars
+            maxLines = 1
         )
     }
 }
