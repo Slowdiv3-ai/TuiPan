@@ -12,5 +12,6 @@ dependencyResolutionManagement {
         mavenCentral()
     }
 }
-rootProject.name = "TerminalPan"
+
+rootProject.name = "TuiPan"
 include(":app")
