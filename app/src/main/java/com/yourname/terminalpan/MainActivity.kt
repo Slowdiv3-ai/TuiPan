@@ -1,5 +1,6 @@
 package com.yourname.terminalpan
 
+import android.content.Context
 import android.net.Uri
 import android.os.Bundle
 import androidx.activity.ComponentActivity
@@ -23,16 +24,39 @@ import androidx.compose.ui.unit.sp
 import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
+import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.audio.AudioSink
+import androidx.media3.exoplayer.audio.DefaultAudioSink
+import kotlinx.coroutines.delay
 
 class MainActivity : ComponentActivity() {
 
     private lateinit var exoPlayer: ExoPlayer
+    private lateinit var panProcessor: PanAudioProcessor
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        exoPlayer = ExoPlayer.Builder(this).build()
+        panProcessor = PanAudioProcessor()
+
+        // Custom Renderers Factory to inject the PanProcessor
+        val renderersFactory = object : DefaultRenderersFactory(this) {
+            override fun buildAudioSink(
+                context: Context,
+                enableFloatOutput: Boolean,
+                enableAudioTrackPlaybackParams: Boolean
+            ): AudioSink? {
+                return DefaultAudioSink.Builder(context)
+                    .setAudioProcessors(arrayOf(panProcessor))
+                    .setEnableFloatOutput(enableFloatOutput)
+                    .build()
+            }
+        }
+
+        exoPlayer = ExoPlayer.Builder(this)
+            .setRenderersFactory(renderersFactory)
+            .build()
 
         exoPlayer.addListener(object : Player.Listener {
             override fun onPlayerError(error: PlaybackException) {
@@ -48,7 +72,7 @@ class MainActivity : ComponentActivity() {
                     primary = Color(0xFFFFB300)
                 )
             ) {
-                TerminalScreen(exoPlayer)
+                TerminalScreen(exoPlayer, panProcessor)
             }
         }
     }
@@ -60,28 +84,41 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-fun TerminalScreen(player: ExoPlayer) {
+fun TerminalScreen(player: ExoPlayer, panProcessor: PanAudioProcessor) {
     var isPlaying by remember { mutableStateOf(false) }
     var activeTab by remember { mutableStateOf(3) }
     var currentTrackName by remember { mutableStateOf("No file selected") }
+    var currentPanValue by remember { mutableStateOf(0f) }
     val context = LocalContext.current
 
-    // This is the launcher that opens the Android file picker
     val filePickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
     ) { uri: Uri? ->
         if (uri != null) {
-            // User picked a file, load it into ExoPlayer
             val mediaItem = MediaItem.fromUri(uri)
             player.setMediaItem(mediaItem)
             player.prepare()
-            
-            // Try to get the file name (just a simple string representation for now)
             currentTrackName = uri.lastPathSegment ?: "Unknown File"
-            
-            // Auto-play
             player.play()
             isPlaying = true
+        }
+    }
+
+    // Animation Loop for Auto-Pan
+    LaunchedEffect(isPlaying) {
+        var time = 0f
+        while (isPlaying) {
+            // 0.2f speed means one full L->R->L cycle takes ~10 seconds
+            val speed = 0.2f 
+            
+            // Sine wave from -0.8 to 0.8
+            val newPan = (kotlin.math.sin(time) * 0.8).toFloat()
+            
+            currentPanValue = newPan
+            panProcessor.panValue = newPan 
+            
+            delay(50) // Update 20 times a second
+            time += speed * 0.05f 
         }
     }
 
@@ -92,7 +129,7 @@ fun TerminalScreen(player: ExoPlayer) {
             .padding(16.dp)
     ) {
         Text(
-            text = "■ TuiPan - v1.0 (Local Audio Test)",
+            text = "■ TuiPan - v1.0 (Panning Test)",
             fontFamily = FontFamily.Monospace,
             color = Color.White,
             fontSize = 18.sp,
@@ -105,15 +142,43 @@ fun TerminalScreen(player: ExoPlayer) {
             if (activeTab == 3) {
                 Column {
                     Text(
-                        text = "// Local Audio Mode\n",
+                        text = "// AutoPan Engine\n",
                         color = Color.Gray,
                         fontFamily = FontFamily.Monospace,
                     )
                     Text(
-                        text = "Loaded: $currentTrackName",
+                        text = "Loaded: $currentTrackName\n",
                         color = Color(0xFFFFB300),
                         fontFamily = FontFamily.Monospace,
-                        lineHeight = 24.sp
+                    )
+                    
+                    Spacer(modifier = Modifier.height(32.dp))
+                    
+                    // ASCII Visualizer
+                    val barLength = 20
+                    val center = barLength / 2
+                    val pos = (center + (currentPanValue * center)).toInt().coerceIn(0, barLength - 1)
+                    
+                    val asciiBar = buildString {
+                        for (i in 0 until barLength) {
+                            if (i == pos) append("o") else append("-")
+                        }
+                    }
+
+                    Text(
+                        text = "[ $asciiBar ]",
+                        fontFamily = FontFamily.Monospace,
+                        color = Color(0xFFFFB300),
+                        fontSize = 20.sp,
+                        modifier = Modifier.align(Alignment.CenterHorizontally)
+                    )
+                    
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Text(
+                        text = String.format("Val: %+.2f", currentPanValue),
+                        fontFamily = FontFamily.Monospace,
+                        color = Color.White,
+                        modifier = Modifier.align(Alignment.CenterHorizontally)
                     )
                 }
             } else {
@@ -133,12 +198,9 @@ fun TerminalScreen(player: ExoPlayer) {
             )
             
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                // NEW: File Picker Button
                 BracketButton("open") {
-                    // "audio/*" tells the picker to only show audio files
                     filePickerLauncher.launch("audio/*")
                 }
-                
                 BracketButton("play") {
                     if (!isPlaying) {
                         player.play()
@@ -152,6 +214,7 @@ fun TerminalScreen(player: ExoPlayer) {
                     player.pause()
                     player.seekTo(0)
                     isPlaying = false
+                    panProcessor.panValue = 0f
                 }
             }
         }
