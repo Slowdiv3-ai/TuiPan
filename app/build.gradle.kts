@@ -43,4 +43,5 @@ dependencies {
     // Media3 ExoPlayer
     implementation("androidx.media3:media3-exoplayer:1.2.1")
     implementation("androidx.media3:media3-common:1.2.1")
+    implementation("androidx.media3:media3-session:1.2.1")
 }
