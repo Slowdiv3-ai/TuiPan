@@ -1,12 +1,11 @@
 package com.yourname.terminalpan
 
-import android.content.Context
+import android.content.ComponentName
 import android.net.Uri
 import android.os.Bundle
 import androidx.activity.ComponentActivity
-import androidx.activity.compose.setContent
 import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -27,37 +26,22 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
-import androidx.media3.exoplayer.DefaultRenderersFactory
-import androidx.media3.exoplayer.ExoPlayer
-import androidx.media3.exoplayer.audio.AudioSink
-import androidx.media3.exoplayer.audio.DefaultAudioSink
+import androidx.media3.session.MediaController
+import androidx.media3.session.SessionToken
+import com.google.common.util.concurrent.ListenableFuture
+import com.google.common.util.concurrent.MoreExecutors
+import kotlinx.coroutines.delay
 
 class MainActivity : ComponentActivity() {
 
-    private lateinit var exoPlayer: ExoPlayer
-    private lateinit var panProcessor: PanAudioProcessor
+    private var controllerFuture: ListenableFuture<MediaController>? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        panProcessor = PanAudioProcessor()
-
-        val renderersFactory = object : DefaultRenderersFactory(this) {
-            override fun buildAudioSink(
-                context: Context,
-                enableFloatOutput: Boolean,
-                enableAudioTrackPlaybackParams: Boolean
-            ): AudioSink? {
-                return DefaultAudioSink.Builder(context)
-                    .setAudioProcessors(arrayOf(panProcessor))
-                    .setEnableFloatOutput(enableFloatOutput)
-                    .build()
-            }
-        }
-
-        exoPlayer = ExoPlayer.Builder(this)
-            .setRenderersFactory(renderersFactory)
-            .build()
+        // Connect to the PlaybackService
+        val sessionToken = SessionToken(this, ComponentName(this, PlaybackService::class.java))
+        controllerFuture = MediaController.Builder(this, sessionToken).buildAsync()
 
         setContent {
             MaterialTheme(
@@ -67,34 +51,79 @@ class MainActivity : ComponentActivity() {
                     primary = Color(0xFFFFB300)
                 )
             ) {
-                TerminalScreen(exoPlayer, panProcessor)
+                AppContent(controllerFuture)
             }
         }
     }
-    
+
     override fun onDestroy() {
+        controllerFuture?.let { MediaController.releaseFuture(it) }
         super.onDestroy()
-        exoPlayer.release()
     }
 }
 
 @Composable
-fun TerminalScreen(player: ExoPlayer, panProcessor: PanAudioProcessor) {
+fun AppContent(controllerFuture: ListenableFuture<MediaController>?) {
+    var controller by remember { mutableStateOf<MediaController?>(null) }
+
+    // Wait for the controller to connect to the service
+    LaunchedEffect(controllerFuture) {
+        controllerFuture?.let {
+            it.addListener({
+                controller = it.get()
+            }, MoreExecutors.directExecutor())
+        }
+    }
+
+    if (controller == null) {
+        Box(modifier = Modifier.fillMaxSize().background(Color.Black), contentAlignment = Alignment.Center) {
+            Text("Connecting to audio engine...", color = Color.White, fontFamily = FontFamily.Monospace)
+        }
+    } else {
+        TerminalScreen(controller!!)
+    }
+}
+
+@Composable
+fun TerminalScreen(player: MediaController) {
     var isPlaying by remember { mutableStateOf(false) }
     var activeTab by remember { mutableStateOf(3) }
     var currentTrackName by remember { mutableStateOf("No file selected") }
     var currentPanValue by remember { mutableStateOf(0f) }
-
-    val panEngine = remember {
-        PanEngine(panProcessor) { newVal -> currentPanValue = newVal }
-    }
-
+    
     var selectedPattern by remember { mutableStateOf("smooth") }
     var speed by remember { mutableStateOf(1.0f) }
 
-    LaunchedEffect(selectedPattern, speed) {
-        panEngine.pattern = selectedPattern
-        panEngine.speed = speed
+    // Listen to Player state changes
+    DisposableEffect(player) {
+        val listener = object : Player.Listener {
+            override fun onIsPlayingChanged(isPlayingNow: Boolean) {
+                isPlaying = isPlayingNow
+            }
+        }
+        player.addListener(listener)
+        onDispose { player.removeListener(listener) }
+    }
+
+    // We need a fake pan visualizer for the UI since the engine is in the Service.
+    // In a production app, we'd send the pan value via a StateFlow, but for now, 
+    // we simulate the visualizer locally for the UI.
+    LaunchedEffect(isPlaying, selectedPattern, speed) {
+        if (isPlaying) {
+            var time = 0f
+            while (isPlaying) {
+                val freq = (2 * Math.PI / 4.0) * speed
+                val phase = time * freq
+                currentPanValue = when(selectedPattern) {
+                    "smooth" -> (kotlin.math.sin(phase) * 0.8).toFloat()
+                    "wave" -> ((2.0 / Math.PI) * kotlin.math.asin(kotlin.math.sin(phase)) * 0.8).toFloat()
+                    "subtle" -> (kotlin.math.sin(phase) * 0.4).toFloat()
+                    else -> 0f
+                }
+                delay(50)
+                time += 0.05f
+            }
+        }
     }
 
     val context = LocalContext.current
@@ -106,9 +135,6 @@ fun TerminalScreen(player: ExoPlayer, panProcessor: PanAudioProcessor) {
             player.prepare()
             currentTrackName = uri.lastPathSegment ?: "Unknown File"
             player.play()
-            isPlaying = true
-            panEngine.reset()
-            panEngine.start()
         }
     }
 
@@ -119,112 +145,67 @@ fun TerminalScreen(player: ExoPlayer, panProcessor: PanAudioProcessor) {
             .padding(16.dp)
     ) {
         Text(
-            text = "■ TuiPan - Pan Module",
+            text = "■ TuiPan - Background Ready",
             fontFamily = FontFamily.Monospace,
             color = Color.White,
             fontSize = 18.sp,
             fontWeight = FontWeight.Bold
         )
-
+        
         Divider(color = Color.DarkGray, modifier = Modifier.padding(vertical = 12.dp))
 
         Box(modifier = Modifier.weight(1f)) {
             if (activeTab == 3) {
                 Column {
-                    Text(
-                        text = "// AutoPan Engine\n",
-                        color = Color.Gray,
-                        fontFamily = FontFamily.Monospace
-                    )
-
+                    Text("// AutoPan Engine\n", color = Color.Gray, fontFamily = FontFamily.Monospace)
                     Spacer(modifier = Modifier.height(16.dp))
-
+                    
                     val barLength = 20
                     val center = barLength / 2
                     val pos = (center + (currentPanValue * center)).toInt().coerceIn(0, barLength - 1)
                     val asciiBar = buildString {
-                        for (i in 0 until barLength) {
-                            if (i == pos) append("o") else append("-")
-                        }
+                        for (i in 0 until barLength) { if (i == pos) append("o") else append("-") }
                     }
-
-                    Text(
-                        text = "[ $asciiBar ]",
-                        fontFamily = FontFamily.Monospace,
-                        color = Color(0xFFFFB300),
-                        fontSize = 20.sp,
-                        modifier = Modifier.align(Alignment.CenterHorizontally)
-                    )
-
+                    Text("[ $asciiBar ]", fontFamily = FontFamily.Monospace, color = Color(0xFFFFB300), fontSize = 20.sp, modifier = Modifier.align(Alignment.CenterHorizontally))
+                    
                     Spacer(modifier = Modifier.height(32.dp))
-
+                    
                     Text("pattern", color = Color.Gray, fontFamily = FontFamily.Monospace)
                     Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                         val patterns = listOf("smooth", "wave", "subtle")
                         patterns.forEach { p ->
-                            BracketButton(p, isActive = selectedPattern == p) {
-                                selectedPattern = p
-                                panEngine.reset()
-                            }
+                            BracketButton(p, isActive = selectedPattern == p) { selectedPattern = p }
                         }
                     }
-
+                    
                     Spacer(modifier = Modifier.height(24.dp))
-
-                    Text(
-                        text = "speed [${String.format("%.1f", speed)}x]",
-                        color = Color.Gray,
-                        fontFamily = FontFamily.Monospace
-                    )
+                    
+                    Text("speed [${String.format("%.2f", speed)}x]", color = Color.Gray, fontFamily = FontFamily.Monospace)
                     Spacer(modifier = Modifier.height(8.dp))
-                    TerminalSlider(
-                        value = speed,
-                        onValueChange = { speed = it },
-                        range = 0.05f..2.0f,
-                        modifier = Modifier.fillMaxWidth().padding(horizontal = 0.dp) // Edge to Edge
-                    )
+                    TerminalSlider(value = speed, onValueChange = { speed = it }, range = 0.05f..2.0f)
                 }
             } else {
                 Text("Empty Tab", color = Color.Gray, fontFamily = FontFamily.Monospace)
             }
         }
 
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
+        Row(modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp), horizontalArrangement = Arrangement.SpaceBetween) {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 BracketButton("open") { filePickerLauncher.launch("audio/*") }
                 BracketButton("play") {
-                    if (!isPlaying) {
-                        player.play()
-                        isPlaying = true
-                        panEngine.start()
-                    } else {
-                        player.pause()
-                        isPlaying = false
-                        panEngine.stop()
-                    }
+                    if (!isPlaying) player.play() else player.pause()
                 }
                 BracketButton("stop") {
                     player.pause()
                     player.seekTo(0)
-                    isPlaying = false
-                    panEngine.stop()
                 }
             }
         }
 
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceEvenly
-        ) {
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
             val tabs = listOf("~", "&", "?", "pan", "cfg")
             tabs.forEachIndexed { index, label ->
-                BracketButton(label, isActive = activeTab == index) {
-                    activeTab = index
-                }
+                BracketButton(label, isActive = activeTab == index) { activeTab = index }
             }
         }
     }
@@ -234,79 +215,50 @@ fun TerminalScreen(player: ExoPlayer, panProcessor: PanAudioProcessor) {
 fun TerminalSlider(
     value: Float,
     onValueChange: (Float) -> Unit,
-    range: ClosedFloatingPointRange<Float>,
-    modifier: Modifier = Modifier
+    range: ClosedFloatingPointRange<Float>
 ) {
     BoxWithConstraints(
-        modifier = modifier // Use the passed modifier
+        modifier = Modifier
+            .fillMaxWidth()
             .height(48.dp)
             .pointerInput(range) {
                 detectTapGestures { offset ->
                     val newProgress = (offset.x / size.width).coerceIn(0f, 1f)
-                    val newValue = range.start + newProgress * (range.endInclusive - range.start)
-                    onValueChange(newValue)
+                    onValueChange(range.start + newProgress * (range.endInclusive - range.start))
                 }
             }
             .pointerInput(range) {
                 detectDragGestures(
                     onDragStart = { offset ->
                         val newProgress = (offset.x / size.width).coerceIn(0f, 1f)
-                        val newValue = range.start + newProgress * (range.endInclusive - range.start)
-                        onValueChange(newValue)
+                        onValueChange(range.start + newProgress * (range.endInclusive - range.start))
                     },
                     onDrag = { change, _ ->
                         change.consume()
                         val newProgress = (change.position.x / size.width).coerceIn(0f, 1f)
-                        val newValue = range.start + newProgress * (range.endInclusive - range.start)
-                        onValueChange(newValue)
+                        onValueChange(range.start + newProgress * (range.endInclusive - range.start))
                     }
                 )
-            },
-        contentAlignment = Alignment.CenterStart
+            }
     ) {
-        // Calculate how many characters can fit based on the width (approx 10dp per char)
-        val charWidth = 10.dp // Approximate width of a monospace character
-        val barLength = (maxWidth / charWidth).toInt().coerceAtLeast(10)
-        
+        val barLength = (maxWidth / 10.dp).toInt().coerceAtLeast(10)
         val progress = ((value - range.start) / (range.endInclusive - range.start)).coerceIn(0f, 1f)
         val filled = (progress * barLength).toInt().coerceIn(0, barLength)
-
+        
         val asciiBar = buildString {
             append("|".repeat(filled))
             append(".".repeat(barLength - filled))
         }
 
-        Text(
-            text = "[$asciiBar]",
-            fontFamily = FontFamily.Monospace,
-            color = Color(0xFFFFB300),
-            fontSize = 14.sp, // Slightly smaller to fit more chars
-            maxLines = 1
-        )
+        Text("[$asciiBar]", fontFamily = FontFamily.Monospace, color = Color(0xFFFFB300), fontSize = 14.sp)
     }
 }
 
 @Composable
-fun BracketButton(
-    label: String,
-    isActive: Boolean = false,
-    onClick: () -> Unit
-) {
+fun BracketButton(label: String, isActive: Boolean = false, onClick: () -> Unit) {
     val textColor = if (isActive) Color(0xFFFFB300) else Color.White
     val borderColor = if (isActive) Color(0xFFFFB300) else Color.DarkGray
-
-    Box(
-        modifier = Modifier
-            .border(1.dp, borderColor)
-            .clickable { onClick() }
-            .padding(horizontal = 8.dp, vertical = 6.dp),
-        contentAlignment = Alignment.Center
-    ) {
-        Text(
-            text = "[ $label ]",
-            fontFamily = FontFamily.Monospace,
-            color = textColor,
-            fontSize = 12.sp
-        )
+    Box(modifier = Modifier.border(1.dp, borderColor).clickable { onClick() }.padding(horizontal = 8.dp, vertical = 6.dp)) {
+        Text("[ $label ]", fontFamily = FontFamily.Monospace, color = textColor, fontSize = 12.sp)
     }
 }
