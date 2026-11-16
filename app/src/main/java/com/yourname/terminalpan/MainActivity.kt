@@ -10,25 +10,25 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.media3.common.MediaItem
-import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.audio.AudioSink
 import androidx.media3.exoplayer.audio.DefaultAudioSink
-import kotlinx.coroutines.delay
 
 class MainActivity : ComponentActivity() {
 
@@ -40,7 +40,6 @@ class MainActivity : ComponentActivity() {
 
         panProcessor = PanAudioProcessor()
 
-        // Custom Renderers Factory to inject the PanProcessor
         val renderersFactory = object : DefaultRenderersFactory(this) {
             override fun buildAudioSink(
                 context: Context,
@@ -57,12 +56,6 @@ class MainActivity : ComponentActivity() {
         exoPlayer = ExoPlayer.Builder(this)
             .setRenderersFactory(renderersFactory)
             .build()
-
-        exoPlayer.addListener(object : Player.Listener {
-            override fun onPlayerError(error: PlaybackException) {
-                android.util.Log.e("TuiPan", "PLAYER ERROR: ${error.message}", error)
-            }
-        })
 
         setContent {
             MaterialTheme(
@@ -89,36 +82,30 @@ fun TerminalScreen(player: ExoPlayer, panProcessor: PanAudioProcessor) {
     var activeTab by remember { mutableStateOf(3) }
     var currentTrackName by remember { mutableStateOf("No file selected") }
     var currentPanValue by remember { mutableStateOf(0f) }
-    val context = LocalContext.current
+    
+    // Pan Engine State
+    val panEngine = remember { PanEngine(panProcessor) { newVal -> currentPanValue = newVal } }
+    var selectedPattern by remember { mutableStateOf("smooth") }
+    var speed by remember { mutableStateOf(1.0f) }
 
+    // Sync engine settings with UI state
+    LaunchedEffect(selectedPattern, speed) {
+        panEngine.pattern = selectedPattern
+        panEngine.speed = speed
+    }
+
+    val context = LocalContext.current
     val filePickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
     ) { uri: Uri? ->
         if (uri != null) {
-            val mediaItem = MediaItem.fromUri(uri)
-            player.setMediaItem(mediaItem)
+            player.setMediaItem(MediaItem.fromUri(uri))
             player.prepare()
             currentTrackName = uri.lastPathSegment ?: "Unknown File"
             player.play()
             isPlaying = true
-        }
-    }
-
-    // Animation Loop for Auto-Pan
-    LaunchedEffect(isPlaying) {
-        var time = 0f
-        while (isPlaying) {
-            // 0.2f speed means one full L->R->L cycle takes ~10 seconds
-            val speed = 0.2f 
-            
-            // Sine wave from -0.8 to 0.8
-            val newPan = (kotlin.math.sin(time) * 0.8).toFloat()
-            
-            currentPanValue = newPan
-            panProcessor.panValue = newPan 
-            
-            delay(50) // Update 20 times a second
-            time += speed * 0.05f 
+            panEngine.reset()
+            panEngine.start()
         }
     }
 
@@ -129,7 +116,7 @@ fun TerminalScreen(player: ExoPlayer, panProcessor: PanAudioProcessor) {
             .padding(16.dp)
     ) {
         Text(
-            text = "■ TuiPan - v1.0 (Panning Test)",
+            text = "■ TuiPan - Pan Module",
             fontFamily = FontFamily.Monospace,
             color = Color.White,
             fontSize = 18.sp,
@@ -146,19 +133,13 @@ fun TerminalScreen(player: ExoPlayer, panProcessor: PanAudioProcessor) {
                         color = Color.Gray,
                         fontFamily = FontFamily.Monospace,
                     )
-                    Text(
-                        text = "Loaded: $currentTrackName\n",
-                        color = Color(0xFFFFB300),
-                        fontFamily = FontFamily.Monospace,
-                    )
                     
-                    Spacer(modifier = Modifier.height(32.dp))
+                    Spacer(modifier = Modifier.height(16.dp))
                     
                     // ASCII Visualizer
                     val barLength = 20
                     val center = barLength / 2
                     val pos = (center + (currentPanValue * center)).toInt().coerceIn(0, barLength - 1)
-                    
                     val asciiBar = buildString {
                         for (i in 0 until barLength) {
                             if (i == pos) append("o") else append("-")
@@ -173,12 +154,27 @@ fun TerminalScreen(player: ExoPlayer, panProcessor: PanAudioProcessor) {
                         modifier = Modifier.align(Alignment.CenterHorizontally)
                     )
                     
-                    Spacer(modifier = Modifier.height(16.dp))
-                    Text(
-                        text = String.format("Val: %+.2f", currentPanValue),
-                        fontFamily = FontFamily.Monospace,
-                        color = Color.White,
-                        modifier = Modifier.align(Alignment.CenterHorizontally)
+                    Spacer(modifier = Modifier.height(32.dp))
+                    
+                    // Pattern Selection
+                    Text("pattern", color = Color.Gray, fontFamily = FontFamily.Monospace)
+                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                        val patterns = listOf("smooth", "wave", "subtle", "hard")
+                        patterns.forEach { p ->
+                            BracketButton(p, isActive = selectedPattern == p) {
+                                selectedPattern = p
+                            }
+                        }
+                    }
+                    
+                    Spacer(modifier = Modifier.height(24.dp))
+                    
+                    // Speed Slider
+                    Text("speed [${String.format("%.1f", speed)}x]", color = Color.Gray, fontFamily = FontFamily.Monospace)
+                    TerminalSlider(
+                        value = speed,
+                        onValueChange = { speed = it },
+                        range = 0.1f..5.0f
                     )
                 }
             } else {
@@ -191,30 +187,24 @@ fun TerminalScreen(player: ExoPlayer, panProcessor: PanAudioProcessor) {
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Text(
-                text = if (isPlaying) "Status: PLAYING" else "Status: STOPPED",
-                fontFamily = FontFamily.Monospace,
-                color = if (isPlaying) Color(0xFFFFB300) else Color.Gray
-            )
-            
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                BracketButton("open") {
-                    filePickerLauncher.launch("audio/*")
-                }
+                BracketButton("open") { filePickerLauncher.launch("audio/*") }
                 BracketButton("play") {
                     if (!isPlaying) {
                         player.play()
                         isPlaying = true
+                        panEngine.start()
                     } else {
                         player.pause()
                         isPlaying = false
+                        panEngine.stop()
                     }
                 }
                 BracketButton("stop") {
                     player.pause()
                     player.seekTo(0)
                     isPlaying = false
-                    panProcessor.panValue = 0f
+                    panEngine.stop()
                 }
             }
         }
@@ -234,6 +224,46 @@ fun TerminalScreen(player: ExoPlayer, panProcessor: PanAudioProcessor) {
 }
 
 @Composable
+fun TerminalSlider(
+    value: Float,
+    onValueChange: (Float) -> Unit,
+    range: ClosedFloatingPointRange<Float>
+) {
+    // A custom ASCII slider that looks like a terminal progress bar
+    val barLength = 20
+    val progress = (value - range.start) / (range.endInclusive - range.start)
+    val filled = (progress * barLength).toInt().coerceIn(0, barLength)
+    
+    val asciiBar = buildString {
+        append("|".repeat(filled))
+        append(".".repeat(barLength - filled))
+    }
+
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(48.dp)
+            .pointerInput(Unit) {
+                detectHorizontalDragGestures { change, dragAmount ->
+                    change.consume()
+                    val newProgress = (progress + dragAmount / size.width).coerceIn(0f, 1f)
+                    val newValue = range.start + newProgress * (range.endInclusive - range.start)
+                    onValueChange(newValue)
+                }
+            }
+            .clickable { /* Can add tap-to-set logic here if needed */ },
+        contentAlignment = Alignment.CenterStart
+    ) {
+        Text(
+            text = "[$asciiBar]",
+            fontFamily = FontFamily.Monospace,
+            color = Color(0xFFFFB300),
+            fontSize = 16.sp
+        )
+    }
+}
+
+@Composable
 fun BracketButton(
     label: String,
     isActive: Boolean = false,
@@ -246,14 +276,14 @@ fun BracketButton(
         modifier = Modifier
             .border(1.dp, borderColor)
             .clickable { onClick() }
-            .padding(horizontal = 12.dp, vertical = 8.dp),
+            .padding(horizontal = 8.dp, vertical = 6.dp),
         contentAlignment = Alignment.Center
     ) {
         Text(
             text = "[ $label ]",
             fontFamily = FontFamily.Monospace,
             color = textColor,
-            fontSize = 14.sp
+            fontSize = 12.sp
         )
     }
 }
