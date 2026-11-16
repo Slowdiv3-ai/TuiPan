@@ -35,10 +35,10 @@ class MainActivity : ComponentActivity() {
         panProcessor = PanAudioProcessor()
 
         // 2. Initialize ExoPlayer and inject the Processor
+
         exoPlayer = ExoPlayer.Builder(this)
             .setRenderersFactory { handler, videoListener, audioListener, textOutput, metadataOutput ->
                 DefaultRenderersFactory(this)
-                    .setEnableAudioOffload(false)
                     .createRenderers(this, handler, videoListener, audioListener, textOutput, metadataOutput, arrayOf(panProcessor))
             }
             .build()
