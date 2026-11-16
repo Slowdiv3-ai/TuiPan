@@ -22,6 +22,9 @@ import androidx.media3.common.MediaItem
 import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
 import kotlinx.coroutines.delay
+import android.content.Context
+import androidx.media3.exoplayer.audio.AudioSink
+import androidx.media3.exoplayer.audio.DefaultAudioSink
 
 class MainActivity : ComponentActivity() {
 
@@ -34,16 +37,23 @@ class MainActivity : ComponentActivity() {
         // 1. Initialize the Audio Processor
         panProcessor = PanAudioProcessor()
 
-        // 2. Initialize ExoPlayer and inject the Processor
-
-        // 2. Initialize ExoPlayer and inject the Processor
-        val renderersFactory = DefaultRenderersFactory(this)
-            .setAudioProcessors(arrayOf(panProcessor)) // This is the modern, clean way
-
-        exoPlayer = ExoPlayer.Builder(this)
-            .setRenderersFactory(renderersFactory)
+        // 2. Initialize ExoPlayer with custom AudioSink for panning
+    val renderersFactory = object : DefaultRenderersFactory(this) {
+    override fun buildAudioSink(
+        context: Context,
+        enableFloatOutput: Boolean,
+        enableAudioTrackPlaybackParams: Boolean
+    ): AudioSink? {
+        return DefaultAudioSink.Builder(context)
+            .setAudioProcessors(arrayOf(panProcessor))
+            .setEnableFloatOutput(enableFloatOutput)
             .build()
+    }
+}
 
+exoPlayer = ExoPlayer.Builder(this)
+    .setRenderersFactory(renderersFactory)
+    .build()
         // 3. Load a test song (Replace with local file later)
         val testAudioUrl = "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3"
         exoPlayer.setMediaItem(MediaItem.fromUri(testAudioUrl))
