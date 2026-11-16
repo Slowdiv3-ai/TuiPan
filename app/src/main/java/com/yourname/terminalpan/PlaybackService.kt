@@ -1,6 +1,7 @@
 package com.yourname.terminalpan
 
-import android.content.Context
+import android.app.PendingIntent
+import android.content.Intent
 import android.os.Bundle
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.DefaultRenderersFactory
@@ -29,7 +30,7 @@ class PlaybackService : MediaSessionService() {
 
         val renderersFactory = object : DefaultRenderersFactory(this) {
             override fun buildAudioSink(
-                context: Context,
+                context: android.content.Context,
                 enableFloatOutput: Boolean,
                 enableAudioTrackPlaybackParams: Boolean
             ): AudioSink? {
