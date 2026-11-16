@@ -78,57 +78,53 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-fun TerminalSlider(
-    value: Float,
-    onValueChange: (Float) -> Unit,
-    range: ClosedFloatingPointRange<Float>
-) {
-    val barLength = 20
-    val progress = ((value - range.start) / (range.endInclusive - range.start)).coerceIn(0f, 1f)
-    val filled = (progress * barLength).toInt().coerceIn(0, barLength)
+fun TerminalScreen(player: ExoPlayer, panProcessor: PanAudioProcessor) {
+    var isPlaying by remember { mutableStateOf(false) }
+    var activeTab by remember { mutableStateOf(3) }
+    var currentTrackName by remember { mutableStateOf("No file selected") }
+    var currentPanValue by remember { mutableStateOf(0f) }
 
-    val asciiBar = buildString {
-        append("|".repeat(filled))
-        append(".".repeat(barLength - filled))
+    val panEngine = remember {
+        PanEngine(panProcessor) { newVal -> currentPanValue = newVal }
     }
 
-    Box(
+    var selectedPattern by remember { mutableStateOf("smooth") }
+    var speed by remember { mutableStateOf(1.0f) }
+
+    LaunchedEffect(selectedPattern, speed) {
+        panEngine.pattern = selectedPattern
+        panEngine.speed = speed
+    }
+
+    val context = LocalContext.current
+    val filePickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent()
+    ) { uri: Uri? ->
+        if (uri != null) {
+            player.setMediaItem(MediaItem.fromUri(uri))
+            player.prepare()
+            currentTrackName = uri.lastPathSegment ?: "Unknown File"
+            player.play()
+            isPlaying = true
+            panEngine.reset()
+            panEngine.start()
+        }
+    }
+
+    Column(
         modifier = Modifier
-            .fillMaxWidth()
-            .height(48.dp)
-            .pointerInput(range) {
-                detectTapGestures { offset ->
-                    val newProgress = (offset.x / size.width).coerceIn(0f, 1f)
-                    val newValue = range.start + newProgress * (range.endInclusive - range.start)
-                    onValueChange(newValue)
-                }
-            }
-            .pointerInput(range) {
-                detectDragGestures(
-                    onDragStart = { offset ->
-                        val newProgress = (offset.x / size.width).coerceIn(0f, 1f)
-                        val newValue = range.start + newProgress * (range.endInclusive - range.start)
-                        onValueChange(newValue)
-                    },
-                    onDrag = { change, _ ->
-                        change.consume()
-                        val newProgress = (change.position.x / size.width).coerceIn(0f, 1f)
-                        val newValue = range.start + newProgress * (range.endInclusive - range.start)
-                        onValueChange(newValue)
-                    }
-                )
-            },
-        contentAlignment = Alignment.CenterStart
+            .fillMaxSize()
+            .background(Color.Black)
+            .padding(16.dp)
     ) {
         Text(
-            text = "[$asciiBar]",
+            text = "■ TuiPan - Pan Module",
             fontFamily = FontFamily.Monospace,
-            color = Color(0xFFFFB300),
-            fontSize = 16.sp
+            color = Color.White,
+            fontSize = 18.sp,
+            fontWeight = FontWeight.Bold
         )
-    }
-}
-        
+
         Divider(color = Color.DarkGray, modifier = Modifier.padding(vertical = 12.dp))
 
         Box(modifier = Modifier.weight(1f)) {
@@ -137,11 +133,11 @@ fun TerminalSlider(
                     Text(
                         text = "// AutoPan Engine\n",
                         color = Color.Gray,
-                        fontFamily = FontFamily.Monospace,
+                        fontFamily = FontFamily.Monospace
                     )
-                    
+
                     Spacer(modifier = Modifier.height(16.dp))
-                    
+
                     val barLength = 20
                     val center = barLength / 2
                     val pos = (center + (currentPanValue * center)).toInt().coerceIn(0, barLength - 1)
@@ -158,10 +154,9 @@ fun TerminalSlider(
                         fontSize = 20.sp,
                         modifier = Modifier.align(Alignment.CenterHorizontally)
                     )
-                    
+
                     Spacer(modifier = Modifier.height(32.dp))
-                    
-                    // Pattern Selection (Removed "hard")
+
                     Text("pattern", color = Color.Gray, fontFamily = FontFamily.Monospace)
                     Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                         val patterns = listOf("smooth", "wave", "subtle")
@@ -172,11 +167,14 @@ fun TerminalSlider(
                             }
                         }
                     }
-                    
+
                     Spacer(modifier = Modifier.height(24.dp))
-                    
-                    // Speed Slider
-                    Text("speed [${String.format("%.1f", speed)}x]", color = Color.Gray, fontFamily = FontFamily.Monospace)
+
+                    Text(
+                        text = "speed [${String.format("%.1f", speed)}x]",
+                        color = Color.Gray,
+                        fontFamily = FontFamily.Monospace
+                    )
                     Spacer(modifier = Modifier.height(8.dp))
                     TerminalSlider(
                         value = speed,
@@ -239,7 +237,7 @@ fun TerminalSlider(
     val barLength = 20
     val progress = ((value - range.start) / (range.endInclusive - range.start)).coerceIn(0f, 1f)
     val filled = (progress * barLength).toInt().coerceIn(0, barLength)
-    
+
     val asciiBar = buildString {
         append("|".repeat(filled))
         append(".".repeat(barLength - filled))
@@ -250,7 +248,6 @@ fun TerminalSlider(
             .fillMaxWidth()
             .height(48.dp)
             .pointerInput(range) {
-                // Tap to set position instantly
                 detectTapGestures { offset ->
                     val newProgress = (offset.x / size.width).coerceIn(0f, 1f)
                     val newValue = range.start + newProgress * (range.endInclusive - range.start)
@@ -258,8 +255,7 @@ fun TerminalSlider(
                 }
             }
             .pointerInput(range) {
-                // Drag to smoothly scrub
-                androidx.compose.foundation.gestures.detectDragGestures(
+                detectDragGestures(
                     onDragStart = { offset ->
                         val newProgress = (offset.x / size.width).coerceIn(0f, 1f)
                         val newValue = range.start + newProgress * (range.endInclusive - range.start)
