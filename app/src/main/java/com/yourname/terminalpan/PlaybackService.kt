@@ -1,6 +1,8 @@
 package com.yourname.terminalpan
 
+import android.app.PendingIntent
 import android.content.Context
+import android.content.Intent
 import android.os.Bundle
 import android.util.Log
 import androidx.media3.common.AudioAttributes
@@ -37,7 +39,6 @@ class PlaybackService : MediaSessionService() {
                 enableFloatOutput: Boolean,
                 enableAudioTrackPlaybackParams: Boolean
             ): AudioSink? {
-                Log.d("TuiPan", "Building AudioSink with PanProcessor")
                 return DefaultAudioSink.Builder(context)
                     .setAudioProcessors(arrayOf(panProcessor))
                     .setEnableFloatOutput(enableFloatOutput)
@@ -55,26 +56,22 @@ class PlaybackService : MediaSessionService() {
             .setHandleAudioBecomingNoisy(true)
             .setAudioAttributes(audioAttributes, true)
             .build()
-            
-        Log.d("TuiPan", "ExoPlayer built successfully")
-
-        player.addListener(object : Player.Listener {
-            override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
-                Log.e("TuiPan", "EXOPLAYER ERROR: ${error.message}", error)
-            }
-            override fun onPlaybackStateChanged(state: Int) {
-                Log.d("TuiPan", "Playback State Changed: $state")
-            }
-        })
 
         panEngine = PanEngine(panProcessor) { /* UI updates independently */ }
+
+        // This intent tells Android what to open when the user taps the notification
+        val sessionActivityIntent = PendingIntent.getActivity(
+            this,
+            0,
+            Intent(this, MainActivity::class.java),
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+        )
 
         val sessionCallback = object : MediaSession.Callback {
             override fun onConnect(
                 session: MediaSession,
                 controller: MediaSession.ControllerInfo
             ): MediaSession.ConnectionResult {
-                Log.d("TuiPan", "Controller connected to Service")
                 val availableCommands = MediaSession.ConnectionResult.DEFAULT_SESSION_COMMANDS.buildUpon()
                     .add(SessionCommand("SET_PAN", Bundle.EMPTY))
                     .add(SessionCommand("START_PAN", Bundle.EMPTY))
@@ -89,7 +86,6 @@ class PlaybackService : MediaSessionService() {
                 customCommand: SessionCommand,
                 args: Bundle
             ): ListenableFuture<SessionResult> {
-                Log.d("TuiPan", "Custom Command received: ${customCommand.customAction}")
                 when (customCommand.customAction) {
                     "SET_PAN" -> {
                         val pattern = args.getString("pattern") ?: "smooth"
@@ -100,14 +96,8 @@ class PlaybackService : MediaSessionService() {
                         panEngine.speed = speed
                         panProcessor.useFrequencyPan = freqPan
                     }
-                    "START_PAN" -> {
-                        Log.d("TuiPan", "Starting PanEngine")
-                        panEngine.start()
-                    }
-                    "STOP_PAN" -> {
-                        Log.d("TuiPan", "Stopping PanEngine")
-                        panEngine.stop()
-                    }
+                    "START_PAN" -> panEngine.start()
+                    "STOP_PAN" -> panEngine.stop()
                 }
                 return Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS))
             }
@@ -115,9 +105,8 @@ class PlaybackService : MediaSessionService() {
 
         mediaSession = MediaSession.Builder(this, player)
             .setCallback(sessionCallback)
+            .setSessionActivity(sessionActivityIntent) // <--- CRITICAL FIX
             .build()
-            
-        Log.d("TuiPan", "MediaSession built successfully")
     }
 
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? {
@@ -125,7 +114,6 @@ class PlaybackService : MediaSessionService() {
     }
 
     override fun onDestroy() {
-        Log.d("TuiPan", "PlaybackService destroyed")
         panEngine.stop()
         mediaSession?.run {
             player.release()
