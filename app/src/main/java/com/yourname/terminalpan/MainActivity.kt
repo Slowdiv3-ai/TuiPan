@@ -95,7 +95,6 @@ fun TerminalScreen(player: MediaController) {
     var speed by remember { mutableStateOf(1.0f) }
     var panMode by remember { mutableStateOf("volume") }
     
-    // NEW: State to hold error messages
     var logMessage by remember { mutableStateOf("Ready.") }
 
     DisposableEffect(player) {
@@ -104,7 +103,11 @@ fun TerminalScreen(player: MediaController) {
                 isPlaying = isPlayingNow
                 logMessage = if (isPlayingNow) "Playing audio..." else "Paused."
             }
-            // NEW: Catch errors and display them
+            override fun onPlaybackStateChanged(state: Int) {
+                if (state == Player.STATE_READY) {
+                    logMessage = "Ready. Press play!"
+                }
+            }
             override fun onPlayerError(error: PlaybackException) {
                 logMessage = "ERROR: ${error.message}"
                 android.util.Log.e("TuiPan", "PLAYER ERROR", error)
@@ -148,11 +151,19 @@ fun TerminalScreen(player: MediaController) {
         contract = ActivityResultContracts.GetContent()
     ) { uri: Uri? ->
         if (uri != null) {
-            logMessage = "Loading: $uri"
-            player.setMediaItem(MediaItem.fromUri(uri))
+            // Take persistable permission in case the service needs it
+            try {
+                context.contentResolver.takePersistableUriPermission(uri, android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            } catch (e: Exception) {
+                // Ignore if it fails (e.g. some file managers don't support it)
+            }
+
+            val mediaItem = MediaItem.fromUri(uri)
+            player.setMediaItem(mediaItem)
+            player.playWhenReady = true // <--- CRITICAL FIX
             player.prepare()
             currentTrackName = uri.lastPathSegment ?: "Unknown File"
-            player.play()
+            
             player.sendCustomCommand(SessionCommand("START_PAN", Bundle.EMPTY), Bundle.EMPTY)
         }
     }
@@ -178,7 +189,6 @@ fun TerminalScreen(player: MediaController) {
                 Column {
                     Text("// Debug Console\n", color = Color.Gray, fontFamily = FontFamily.Monospace)
                     
-                    // Display the log message!
                     Text(
                         text = logMessage,
                         color = Color(0xFFFFB300),
