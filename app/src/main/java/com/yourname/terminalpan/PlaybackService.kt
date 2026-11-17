@@ -1,8 +1,9 @@
 package com.yourname.terminalpan
 
-import android.app.PendingIntent
-import android.content.Intent
+import android.content.Context
 import android.os.Bundle
+import androidx.media3.common.AudioAttributes
+import androidx.media3.common.C
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
@@ -30,7 +31,7 @@ class PlaybackService : MediaSessionService() {
 
         val renderersFactory = object : DefaultRenderersFactory(this) {
             override fun buildAudioSink(
-                context: android.content.Context,
+                context: Context,
                 enableFloatOutput: Boolean,
                 enableAudioTrackPlaybackParams: Boolean
             ): AudioSink? {
@@ -41,9 +42,15 @@ class PlaybackService : MediaSessionService() {
             }
         }
 
+        val audioAttributes = AudioAttributes.Builder()
+            .setUsage(C.USAGE_MEDIA)
+            .setContentType(C.AUDIO_CONTENT_TYPE_MUSIC)
+            .build()
+
         val player = ExoPlayer.Builder(this)
             .setRenderersFactory(renderersFactory)
             .setHandleAudioBecomingNoisy(true)
+            .setAudioAttributes(audioAttributes, true)
             .build()
 
         panEngine = PanEngine(panProcessor) { /* UI updates independently */ }
@@ -71,8 +78,11 @@ class PlaybackService : MediaSessionService() {
                     "SET_PAN" -> {
                         val pattern = args.getString("pattern") ?: "smooth"
                         val speed = args.getFloat("speed", 1.0f)
+                        val freqPan = args.getBoolean("freqPan", false)
+                        
                         panEngine.pattern = pattern
                         panEngine.speed = speed
+                        panProcessor.useFrequencyPan = freqPan
                     }
                     "START_PAN" -> panEngine.start()
                     "STOP_PAN" -> panEngine.stop()
