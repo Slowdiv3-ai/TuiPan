@@ -1,8 +1,12 @@
 package com.yourname.terminalpan
 
 import android.content.ComponentName
+import android.content.Context
+import android.content.Intent
+import android.content.ServiceConnection
 import android.net.Uri
 import android.os.Bundle
+import android.os.IBinder
 import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -28,11 +32,6 @@ import androidx.compose.ui.unit.sp
 import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
-import androidx.media3.session.MediaController
-import androidx.media3.session.SessionCommand
-import androidx.media3.session.SessionToken
-import com.google.common.util.concurrent.ListenableFuture
-import com.google.common.util.concurrent.MoreExecutors
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -41,13 +40,30 @@ import java.io.File
 
 class MainActivity : ComponentActivity() {
 
-    private var controllerFuture: ListenableFuture<MediaController>? = null
+    private var boundService: PlaybackService? = null
+    private var isBound = false
+
+    private val connection = object : ServiceConnection {
+        override fun onServiceConnected(className: ComponentName, service: IBinder) {
+            val binder = service as PlaybackService.LocalBinder // We need a binder now
+            boundService = binder.getService()
+            isBound = true
+            Log.d("TuiPan", "Service Connected")
+        }
+
+        override fun onServiceDisconnected(arg0: ComponentName) {
+            isBound = false
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-
-        val sessionToken = SessionToken(this, ComponentName(this, PlaybackService::class.java))
-        controllerFuture = MediaController.Builder(this, sessionToken).buildAsync()
+        
+        // Start and bind the service
+        Intent(this, PlaybackService::class.java).also { intent ->
+            startForegroundService(intent)
+            bindService(intent, connection, Context.BIND_AUTO_CREATE)
+        }
 
         setContent {
             MaterialTheme(
@@ -57,42 +73,34 @@ class MainActivity : ComponentActivity() {
                     primary = Color(0xFFFFB300)
                 )
             ) {
-                AppContent(controllerFuture)
+                AppContent(isBound, boundService)
             }
         }
     }
 
     override fun onDestroy() {
-        controllerFuture?.let { MediaController.releaseFuture(it) }
         super.onDestroy()
+        if (isBound) {
+            unbindService(connection)
+            isBound = false
+        }
     }
 }
 
 @Composable
-fun AppContent(controllerFuture: ListenableFuture<MediaController>?) {
-    var controller by remember { mutableStateOf<MediaController?>(null) }
-    var isConnected by remember { mutableStateOf(false) }
-
-    LaunchedEffect(controllerFuture) {
-        controllerFuture?.let {
-            it.addListener({
-                controller = it.get()
-                isConnected = controller?.isConnected == true
-            }, MoreExecutors.directExecutor())
-        }
-    }
-
-    if (controller == null || !isConnected) {
+fun AppContent(isBound: Boolean, service: PlaybackService?) {
+    if (!isBound || service == null) {
         Box(modifier = Modifier.fillMaxSize().background(Color.Black), contentAlignment = Alignment.Center) {
             Text("Connecting to audio engine...", color = Color.White, fontFamily = FontFamily.Monospace)
         }
     } else {
-        TerminalScreen(controller!!)
+        TerminalScreen(service)
     }
 }
 
 @Composable
-fun TerminalScreen(player: MediaController) {
+fun TerminalScreen(service: PlaybackService) {
+    val player = service.exoPlayer
     var isPlaying by remember { mutableStateOf(false) }
     var activeTab by remember { mutableStateOf(3) }
     var currentTrackName by remember { mutableStateOf("No file selected") }
@@ -104,18 +112,6 @@ fun TerminalScreen(player: MediaController) {
     
     var logMessage by remember { mutableStateOf("Ready.") }
     val scope = rememberCoroutineScope()
-
-    val permissionLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.RequestPermission()
-    ) { isGranted -> 
-        logMessage = if (isGranted) "Notifications allowed" else "Notifications denied"
-    }
-
-    LaunchedEffect(Unit) {
-        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
-            permissionLauncher.launch(android.Manifest.permission.POST_NOTIFICATIONS)
-        }
-    }
 
     DisposableEffect(player) {
         val listener = object : Player.Listener {
@@ -134,17 +130,14 @@ fun TerminalScreen(player: MediaController) {
                 logMessage = "ERROR: ${error.message}"
             }
         }
-        player.addListener(listener)
-        onDispose { player.removeListener(listener) }
+        player?.addListener(listener)
+        onDispose { player?.removeListener(listener) }
     }
 
     LaunchedEffect(selectedPattern, speed, panMode) {
-        val args = Bundle().apply {
-            putString("pattern", selectedPattern)
-            putFloat("speed", speed)
-            putBoolean("freqPan", panMode == "frequency")
-        }
-        player.sendCustomCommand(SessionCommand("SET_PAN", Bundle.EMPTY), args)
+        service.panEngine.pattern = selectedPattern
+        service.panEngine.speed = speed
+        service.panProcessor.useFrequencyPan = panMode == "frequency"
     }
 
     LaunchedEffect(isPlaying, selectedPattern, speed) {
@@ -181,14 +174,13 @@ fun TerminalScreen(player: MediaController) {
                         val uriToPlay = Uri.fromFile(localFile)
                         Log.d("TuiPan", "SETTING MEDIA ITEM TO: $uriToPlay")
                         val mediaItem = MediaItem.fromUri(uriToPlay)
-                        player.setMediaItem(mediaItem)
-                        player.prepare()
-                        // Call play separately AFTER preparing
-                        player.play()
+                        player?.setMediaItem(mediaItem)
+                        player?.prepare()
+                        player?.play()
                         currentTrackName = localFile.name
                         logMessage = "Loaded: ${localFile.name}"
                         
-                        player.sendCustomCommand(SessionCommand("START_PAN", Bundle.EMPTY), Bundle.EMPTY)
+                        service.panEngine.start()
                     }
                 } else {
                     withContext(Dispatchers.Main) {
@@ -272,17 +264,17 @@ fun TerminalScreen(player: MediaController) {
                 BracketButton("open") { filePickerLauncher.launch("audio/*") }
                 BracketButton("play") {
                     if (!isPlaying) {
-                        player.play()
-                        player.sendCustomCommand(SessionCommand("START_PAN", Bundle.EMPTY), Bundle.EMPTY)
+                        player?.play()
+                        service.panEngine.start()
                     } else {
-                        player.pause()
-                        player.sendCustomCommand(SessionCommand("STOP_PAN", Bundle.EMPTY), Bundle.EMPTY)
+                        player?.pause()
+                        service.panEngine.stop()
                     }
                 }
                 BracketButton("stop") {
-                    player.pause()
-                    player.seekTo(0)
-                    player.sendCustomCommand(SessionCommand("STOP_PAN", Bundle.EMPTY), Bundle.EMPTY)
+                    player?.pause()
+                    player?.seekTo(0)
+                    service.panEngine.stop()
                 }
             }
         }
