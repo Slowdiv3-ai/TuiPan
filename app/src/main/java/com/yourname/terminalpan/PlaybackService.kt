@@ -56,7 +56,7 @@ class PlaybackService : MediaSessionService() {
 
             Log.d("TuiPan", "Building ExoPlayer")
             val player = ExoPlayer.Builder(this)
-                .setRenderersFactory(renderersFactory)
+                // .setRenderersFactory(renderersFactory) // <--- TEMPORARILY BYPASSED
                 .setHandleAudioBecomingNoisy(true)
                 .setAudioAttributes(audioAttributes, true)
                 .build()
