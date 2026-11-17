@@ -11,6 +11,7 @@ import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
+import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.exoplayer.DefaultRenderersFactory
@@ -54,7 +55,7 @@ class PlaybackService : MediaSessionService() {
                     Log.d("TuiPan", "Building AudioSink with PanProcessor")
                     return DefaultAudioSink.Builder(context)
                         .setAudioProcessors(arrayOf(panProcessor))
-                        .setEnableFloatOutput(enableFloatOutput)
+                        // Removed setEnableFloatOutput to prevent silent deadlocks on some devices
                         .build()
                 }
             }
@@ -68,13 +69,26 @@ class PlaybackService : MediaSessionService() {
             val mediaSourceFactory = DefaultMediaSourceFactory(dataSourceFactory)
 
             val player = ExoPlayer.Builder(this)
-                .setRenderersFactory(renderersFactory) // <--- RE-ENABLED
+                .setRenderersFactory(renderersFactory)
                 .setMediaSourceFactory(mediaSourceFactory)
                 .setHandleAudioBecomingNoisy(true)
                 .setAudioAttributes(audioAttributes, true)
                 .build()
                 
             Log.d("TuiPan", "ExoPlayer built successfully")
+
+            // Force ExoPlayer to log its state changes and errors
+            player.addListener(object : Player.Listener {
+                override fun onPlayerError(error: PlaybackException) {
+                    Log.e("TuiPan", "SERVICE PLAYER ERROR: ${error.message}", error)
+                }
+                override fun onPlaybackStateChanged(state: Int) {
+                    Log.d("TuiPan", "SERVICE PLAYBACK STATE: $state")
+                }
+                override fun onIsPlayingChanged(isPlaying: Boolean) {
+                    Log.d("TuiPan", "SERVICE IS PLAYING: $isPlaying")
+                }
+            })
 
             panEngine = PanEngine(panProcessor) { /* UI updates independently */ }
 
@@ -139,7 +153,6 @@ class PlaybackService : MediaSessionService() {
         }
     }
 
-    // Ensure the Service is running in the foreground so Android doesn't block audio
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         val notification = NotificationCompat.Builder(this, channelId)
             .setContentTitle("TuiPan")
