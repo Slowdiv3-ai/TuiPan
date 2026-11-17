@@ -71,16 +71,18 @@ class MainActivity : ComponentActivity() {
 @Composable
 fun AppContent(controllerFuture: ListenableFuture<MediaController>?) {
     var controller by remember { mutableStateOf<MediaController?>(null) }
+    var isConnected by remember { mutableStateOf(false) }
 
     LaunchedEffect(controllerFuture) {
         controllerFuture?.let {
             it.addListener({
                 controller = it.get()
+                isConnected = controller?.isConnected == true
             }, MoreExecutors.directExecutor())
         }
     }
 
-    if (controller == null) {
+    if (controller == null || !isConnected) {
         Box(modifier = Modifier.fillMaxSize().background(Color.Black), contentAlignment = Alignment.Center) {
             Text("Connecting to audio engine...", color = Color.White, fontFamily = FontFamily.Monospace)
         }
@@ -180,8 +182,9 @@ fun TerminalScreen(player: MediaController) {
                         Log.d("TuiPan", "SETTING MEDIA ITEM TO: $uriToPlay")
                         val mediaItem = MediaItem.fromUri(uriToPlay)
                         player.setMediaItem(mediaItem)
-                        player.playWhenReady = true 
                         player.prepare()
+                        // Call play separately AFTER preparing
+                        player.play()
                         currentTrackName = localFile.name
                         logMessage = "Loaded: ${localFile.name}"
                         
@@ -269,7 +272,6 @@ fun TerminalScreen(player: MediaController) {
                 BracketButton("open") { filePickerLauncher.launch("audio/*") }
                 BracketButton("play") {
                     if (!isPlaying) {
-                        // Removed the file picker check, just play directly
                         player.play()
                         player.sendCustomCommand(SessionCommand("START_PAN", Bundle.EMPTY), Bundle.EMPTY)
                     } else {
