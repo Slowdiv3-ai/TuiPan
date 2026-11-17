@@ -3,7 +3,7 @@ package com.yourname.terminalpan
 import android.content.ComponentName
 import android.net.Uri
 import android.os.Bundle
-import android.util.Log // <-- ADDED THIS
+import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
@@ -130,7 +130,6 @@ fun TerminalScreen(player: MediaController) {
             }
             override fun onPlayerError(error: PlaybackException) {
                 logMessage = "ERROR: ${error.message}"
-                android.util.Log.e("TuiPan", "UI PLAYER ERROR", error)
             }
         }
         player.addListener(listener)
@@ -270,12 +269,9 @@ fun TerminalScreen(player: MediaController) {
                 BracketButton("open") { filePickerLauncher.launch("audio/*") }
                 BracketButton("play") {
                     if (!isPlaying) {
-                        if (player.mediaItemCount == 0) {
-                            filePickerLauncher.launch("audio/*")
-                        } else {
-                            player.play()
-                            player.sendCustomCommand(SessionCommand("START_PAN", Bundle.EMPTY), Bundle.EMPTY)
-                        }
+                        // Removed the file picker check, just play directly
+                        player.play()
+                        player.sendCustomCommand(SessionCommand("START_PAN", Bundle.EMPTY), Bundle.EMPTY)
                     } else {
                         player.pause()
                         player.sendCustomCommand(SessionCommand("STOP_PAN", Bundle.EMPTY), Bundle.EMPTY)
