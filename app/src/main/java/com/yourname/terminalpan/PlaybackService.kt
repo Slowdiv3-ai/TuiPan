@@ -8,10 +8,12 @@ import android.util.Log
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.Player
+import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.audio.AudioSink
 import androidx.media3.exoplayer.audio.DefaultAudioSink
+import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
 import androidx.media3.session.SessionCommand
@@ -33,7 +35,6 @@ class PlaybackService : MediaSessionService() {
 
         try {
             panProcessor = PanAudioProcessor()
-            Log.d("TuiPan", "PanProcessor created")
 
             val renderersFactory = object : DefaultRenderersFactory(this) {
                 override fun buildAudioSink(
@@ -41,7 +42,6 @@ class PlaybackService : MediaSessionService() {
                     enableFloatOutput: Boolean,
                     enableAudioTrackPlaybackParams: Boolean
                 ): AudioSink? {
-                    Log.d("TuiPan", "Building AudioSink")
                     return DefaultAudioSink.Builder(context)
                         .setAudioProcessors(arrayOf(panProcessor))
                         .setEnableFloatOutput(enableFloatOutput)
@@ -54,9 +54,13 @@ class PlaybackService : MediaSessionService() {
                 .setContentType(C.AUDIO_CONTENT_TYPE_MUSIC)
                 .build()
 
-            Log.d("TuiPan", "Building ExoPlayer")
+            // CRITICAL FIX: The DataSource Factory allows ExoPlayer to read content:// URIs
+            val dataSourceFactory = DefaultDataSource.Factory(this)
+            val mediaSourceFactory = DefaultMediaSourceFactory(dataSourceFactory)
+
             val player = ExoPlayer.Builder(this)
-                .setRenderersFactory(renderersFactory) // <--- TEMPORARILY BYPASSED
+                .setRenderersFactory(renderersFactory)
+                .setMediaSourceFactory(mediaSourceFactory) // <--- ADDED THIS
                 .setHandleAudioBecomingNoisy(true)
                 .setAudioAttributes(audioAttributes, true)
                 .build()
@@ -77,7 +81,6 @@ class PlaybackService : MediaSessionService() {
                     session: MediaSession,
                     controller: MediaSession.ControllerInfo
                 ): MediaSession.ConnectionResult {
-                    Log.d("TuiPan", "Controller connected")
                     val availableCommands = MediaSession.ConnectionResult.DEFAULT_SESSION_COMMANDS.buildUpon()
                         .add(SessionCommand("SET_PAN", Bundle.EMPTY))
                         .add(SessionCommand("START_PAN", Bundle.EMPTY))
@@ -92,7 +95,6 @@ class PlaybackService : MediaSessionService() {
                     customCommand: SessionCommand,
                     args: Bundle
                 ): ListenableFuture<SessionResult> {
-                    Log.d("TuiPan", "Custom Command: ${customCommand.customAction}")
                     when (customCommand.customAction) {
                         "SET_PAN" -> {
                             val pattern = args.getString("pattern") ?: "smooth"
@@ -127,7 +129,6 @@ class PlaybackService : MediaSessionService() {
     }
 
     override fun onDestroy() {
-        Log.d("TuiPan", "PlaybackService destroyed")
         panEngine.stop()
         mediaSession?.run {
             player.release()
