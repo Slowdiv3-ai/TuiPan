@@ -25,6 +25,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.media3.common.MediaItem
+import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionCommand
@@ -92,12 +93,21 @@ fun TerminalScreen(player: MediaController) {
     
     var selectedPattern by remember { mutableStateOf("smooth") }
     var speed by remember { mutableStateOf(1.0f) }
-    var panMode by remember { mutableStateOf("volume") } // "volume" or "frequency"
+    var panMode by remember { mutableStateOf("volume") }
+    
+    // NEW: State to hold error messages
+    var logMessage by remember { mutableStateOf("Ready.") }
 
     DisposableEffect(player) {
         val listener = object : Player.Listener {
             override fun onIsPlayingChanged(isPlayingNow: Boolean) {
                 isPlaying = isPlayingNow
+                logMessage = if (isPlayingNow) "Playing audio..." else "Paused."
+            }
+            // NEW: Catch errors and display them
+            override fun onPlayerError(error: PlaybackException) {
+                logMessage = "ERROR: ${error.message}"
+                android.util.Log.e("TuiPan", "PLAYER ERROR", error)
             }
         }
         player.addListener(listener)
@@ -138,6 +148,7 @@ fun TerminalScreen(player: MediaController) {
         contract = ActivityResultContracts.GetContent()
     ) { uri: Uri? ->
         if (uri != null) {
+            logMessage = "Loading: $uri"
             player.setMediaItem(MediaItem.fromUri(uri))
             player.prepare()
             currentTrackName = uri.lastPathSegment ?: "Unknown File"
@@ -153,7 +164,7 @@ fun TerminalScreen(player: MediaController) {
             .padding(16.dp)
     ) {
         Text(
-            text = "■ TuiPan - Background Ready",
+            text = "■ TuiPan - Debug Mode",
             fontFamily = FontFamily.Monospace,
             color = Color.White,
             fontSize = 18.sp,
@@ -165,7 +176,17 @@ fun TerminalScreen(player: MediaController) {
         Box(modifier = Modifier.weight(1f)) {
             if (activeTab == 3) {
                 Column {
-                    Text("// AutoPan Engine\n", color = Color.Gray, fontFamily = FontFamily.Monospace)
+                    Text("// Debug Console\n", color = Color.Gray, fontFamily = FontFamily.Monospace)
+                    
+                    // Display the log message!
+                    Text(
+                        text = logMessage,
+                        color = Color(0xFFFFB300),
+                        fontFamily = FontFamily.Monospace,
+                        fontSize = 14.sp,
+                        modifier = Modifier.padding(vertical = 16.dp)
+                    )
+                    
                     Spacer(modifier = Modifier.height(16.dp))
                     
                     val barLength = 20
