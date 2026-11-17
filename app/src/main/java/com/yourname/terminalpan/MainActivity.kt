@@ -97,6 +97,19 @@ fun TerminalScreen(player: MediaController) {
     
     var logMessage by remember { mutableStateOf("Ready.") }
 
+    // NEW: Request Notification Permission for Android 13+ Foreground Service
+    val permissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { isGranted -> 
+        logMessage = if (isGranted) "Notifications allowed" else "Notifications denied"
+    }
+
+    LaunchedEffect(Unit) {
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+            permissionLauncher.launch(android.Manifest.permission.POST_NOTIFICATIONS)
+        }
+    }
+
     DisposableEffect(player) {
         val listener = object : Player.Listener {
             override fun onIsPlayingChanged(isPlayingNow: Boolean) {
@@ -151,16 +164,15 @@ fun TerminalScreen(player: MediaController) {
         contract = ActivityResultContracts.GetContent()
     ) { uri: Uri? ->
         if (uri != null) {
-            // Take persistable permission in case the service needs it
             try {
                 context.contentResolver.takePersistableUriPermission(uri, android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
             } catch (e: Exception) {
-                // Ignore if it fails (e.g. some file managers don't support it)
+                // Ignore if it fails
             }
 
             val mediaItem = MediaItem.fromUri(uri)
             player.setMediaItem(mediaItem)
-            player.playWhenReady = true // <--- CRITICAL FIX
+            player.playWhenReady = true 
             player.prepare()
             currentTrackName = uri.lastPathSegment ?: "Unknown File"
             
