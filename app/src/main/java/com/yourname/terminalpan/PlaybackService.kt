@@ -11,6 +11,7 @@ import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
+import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.datasource.DefaultDataSource
@@ -43,7 +44,7 @@ class PlaybackService : MediaSessionService() {
 
         createNotificationChannel()
         
-        // START FOREGROUND IMMEDIATELY
+        // START FOREGROUND IMMEDIATELY to prevent Android from blocking audio
         val notification = NotificationCompat.Builder(this, channelId)
             .setContentTitle("TuiPan")
             .setContentText("Audio engine active")
@@ -85,8 +86,9 @@ class PlaybackService : MediaSessionService() {
                 
             Log.d("TuiPan", "ExoPlayer built successfully")
 
+            // Log exactly what is happening inside the service player
             player.addListener(object : Player.Listener {
-                override fun onMediaItemTransition(mediaItem: androidx.media3.common.MediaItem?, reason: Int) {
+                override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
                     Log.d("TuiPan", "SERVICE MEDIA ITEM CHANGED: ${mediaItem?.localConfiguration?.uri}")
                 }
                 override fun onPlayerError(error: PlaybackException) {
