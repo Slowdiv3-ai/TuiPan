@@ -43,15 +43,6 @@ class PlaybackService : MediaSessionService() {
         Log.d("TuiPan", "PlaybackService onCreate started")
 
         createNotificationChannel()
-        
-        // START FOREGROUND IMMEDIATELY to prevent Android from blocking audio
-        val notification = NotificationCompat.Builder(this, channelId)
-            .setContentTitle("TuiPan")
-            .setContentText("Audio engine active")
-            .setSmallIcon(android.R.drawable.ic_media_play)
-            .setPriority(NotificationCompat.PRIORITY_LOW)
-            .build()
-        startForeground(notificationId, notification)
 
         try {
             panProcessor = PanAudioProcessor()
@@ -86,7 +77,6 @@ class PlaybackService : MediaSessionService() {
                 
             Log.d("TuiPan", "ExoPlayer built successfully")
 
-            // Log exactly what is happening inside the service player
             player.addListener(object : Player.Listener {
                 override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
                     Log.d("TuiPan", "SERVICE MEDIA ITEM CHANGED: ${mediaItem?.localConfiguration?.uri}")
@@ -158,6 +148,15 @@ class PlaybackService : MediaSessionService() {
                 .build()
                 
             Log.d("TuiPan", "MediaSession built successfully")
+
+            // ONLY start foreground AFTER the session is built
+            val notification = NotificationCompat.Builder(this, channelId)
+                .setContentTitle("TuiPan")
+                .setContentText("Audio engine active")
+                .setSmallIcon(android.R.drawable.ic_media_play)
+                .setPriority(NotificationCompat.PRIORITY_LOW)
+                .build()
+            startForeground(notificationId, notification)
             
         } catch (e: Exception) {
             Log.e("TuiPan", "CRASH IN SERVICE ONCREATE: ${e.message}", e)
