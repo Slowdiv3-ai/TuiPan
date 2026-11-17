@@ -7,19 +7,14 @@ import java.nio.ByteBuffer
 
 class PanAudioProcessor : BaseAudioProcessor() {
     
-    // UI updates this value from -1.0f (Left) to 1.0f (Right)
     @Volatile
     var panValue: Float = 0f
 
-    // Toggle for the Frequency Split mode
     @Volatile
     var useFrequencyPan: Boolean = false
 
-    // State for the Low-Pass filter (must persist between buffers)
     private var lowPassL = 0f
     private var lowPassR = 0f
-
-    // Cutoff frequency for the filter
     private val cutoff = 0.05f 
 
     override fun onConfigure(inputAudioFormat: AudioProcessor.AudioFormat): AudioProcessor.AudioFormat {
@@ -39,39 +34,26 @@ class PanAudioProcessor : BaseAudioProcessor() {
                 var rightSample = inputBuffer.short.toFloat()
 
                 if (useFrequencyPan) {
-                    // --- FREQUENCY SPLIT MODE ---
-                    // 1. Extract the Lows using a simple Low-Pass Filter
                     lowPassL += cutoff * (leftSample - lowPassL)
                     lowPassR += cutoff * (rightSample - lowPassR)
                     
                     val lowL = lowPassL
                     val lowR = lowPassR
-
-                    // 2. Extract the Highs by subtracting Lows from the original
                     val highL = leftSample - lowL
                     val highR = rightSample - lowR
 
-                    // 3. Pan the Highs and Lows in OPPOSITE directions
                     val highVolume = 1.0f - (panValue * 0.8f) 
                     val lowVolume = 1.0f + (panValue * 0.8f)
 
-                    // Mix them back together
-                    val mixedL = (highL * highVolume) + (lowL * lowVolume)
-                    val mixedR = (highR * highVolume) + (lowR * lowVolume)
-
-                    leftSample = mixedL
-                    rightSample = mixedR
-
+                    leftSample = (highL * highVolume) + (lowL * lowVolume)
+                    rightSample = (highR * highVolume) + (lowR * lowVolume)
                 } else {
-                    // --- NORMAL BROADBAND PAN MODE ---
                     val leftVolume = if (panValue > 0) 1.0f - panValue else 1.0f
                     val rightVolume = if (panValue < 0) 1.0f + panValue else 1.0f
-
                     leftSample *= leftVolume
                     rightSample *= rightVolume
                 }
 
-                // Clamp to 16-bit limits to prevent distortion
                 val outL = leftSample.toInt().coerceIn(-32768, 32767).toShort()
                 val outR = rightSample.toInt().coerceIn(-32768, 32767).toShort()
 
@@ -79,7 +61,6 @@ class PanAudioProcessor : BaseAudioProcessor() {
                 outputBuffer.putShort(outR)
             }
         } else {
-            // Mono passthrough
             outputBuffer.put(inputBuffer)
         }
         
