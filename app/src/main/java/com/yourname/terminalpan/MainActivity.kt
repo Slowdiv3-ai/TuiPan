@@ -32,7 +32,11 @@ import androidx.media3.session.SessionCommand
 import androidx.media3.session.SessionToken
 import com.google.common.util.concurrent.ListenableFuture
 import com.google.common.util.concurrent.MoreExecutors
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import java.io.File
 
 class MainActivity : ComponentActivity() {
 
@@ -96,6 +100,7 @@ fun TerminalScreen(player: MediaController) {
     var panMode by remember { mutableStateOf("volume") }
     
     var logMessage by remember { mutableStateOf("Ready.") }
+    val scope = rememberCoroutineScope()
 
     val permissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission()
@@ -118,11 +123,12 @@ fun TerminalScreen(player: MediaController) {
             override fun onPlaybackStateChanged(state: Int) {
                 if (state == Player.STATE_READY) {
                     logMessage = "Ready. Press play!"
+                } else if (state == Player.STATE_BUFFERING) {
+                    logMessage = "Buffering..."
                 }
             }
             override fun onPlayerError(error: PlaybackException) {
                 logMessage = "ERROR: ${error.message}"
-                android.util.Log.e("TuiPan", "PLAYER ERROR", error)
             }
         }
         player.addListener(listener)
@@ -163,18 +169,27 @@ fun TerminalScreen(player: MediaController) {
         contract = ActivityResultContracts.GetContent()
     ) { uri: Uri? ->
         if (uri != null) {
-            try {
-                context.contentResolver.takePersistableUriPermission(uri, android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
-            } catch (e: Exception) { /* Ignore */ }
-
-            val mediaItem = MediaItem.fromUri(uri)
-            player.setMediaItem(mediaItem)
-            player.playWhenReady = true 
-            player.prepare()
-            currentTrackName = uri.lastPathSegment?.substringAfterLast("/") ?: "Unknown File"
-            logMessage = "Loaded: $currentTrackName"
+            logMessage = "Copying file to internal storage..."
             
-            player.sendCustomCommand(SessionCommand("START_PAN", Bundle.EMPTY), Bundle.EMPTY)
+            scope.launch {
+                val localFile = copyUriToCache(context, uri)
+                if (localFile != null) {
+                    withContext(Dispatchers.Main) {
+                        val mediaItem = MediaItem.fromUri(Uri.fromFile(localFile))
+                        player.setMediaItem(mediaItem)
+                        player.playWhenReady = true 
+                        player.prepare()
+                        currentTrackName = localFile.name
+                        logMessage = "Loading: ${localFile.name}"
+                        
+                        player.sendCustomCommand(SessionCommand("START_PAN", Bundle.EMPTY), Bundle.EMPTY)
+                    }
+                } else {
+                    withContext(Dispatchers.Main) {
+                        logMessage = "ERROR: Failed to copy file."
+                    }
+                }
+            }
         }
     }
 
@@ -328,5 +343,27 @@ fun BracketButton(label: String, isActive: Boolean = false, onClick: () -> Unit)
     val borderColor = if (isActive) Color(0xFFFFB300) else Color.DarkGray
     Box(modifier = Modifier.border(1.dp, borderColor).clickable { onClick() }.padding(horizontal = 8.dp, vertical = 6.dp)) {
         Text("[ $label ]", fontFamily = FontFamily.Monospace, color = textColor, fontSize = 12.sp)
+    }
+}
+
+// Helper function to copy the selected content:// URI to a temporary file in the cache
+suspend fun copyUriToCache(context: android.content.Context, uri: Uri): File? {
+    return withContext(Dispatchers.IO) {
+        try {
+            val inputStream = context.contentResolver.openInputStream(uri)
+            if (inputStream != null) {
+                val tempFile = File(context.cacheDir, "temp_audio.mp3")
+                tempFile.outputStream().use { outputStream ->
+                    inputStream.copyTo(outputStream)
+                }
+                inputStream.close()
+                tempFile
+            } else {
+                null
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+            null
+        }
     }
 }
