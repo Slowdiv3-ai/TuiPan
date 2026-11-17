@@ -31,7 +31,15 @@ class PlaybackService : Service() {
     private val channelId = "tuipan_playback_channel"
     private val notificationId = 101
 
-    override fun onBind(intent: Intent?): IBinder? = null
+    inner class LocalBinder : android.os.Binder() {
+        fun getService(): PlaybackService = this@PlaybackService
+    }
+
+    private val binder = LocalBinder()
+
+    override fun onBind(intent: Intent?): IBinder? {
+        return binder
+    }
 
     override fun onCreate() {
         super.onCreate()
