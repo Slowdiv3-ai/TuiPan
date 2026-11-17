@@ -1,8 +1,10 @@
 package com.yourname.terminalpan
 
 import android.content.ComponentName
+import android.content.Context
 import android.net.Uri
 import android.os.Bundle
+import android.provider.MediaStore
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
@@ -97,7 +99,7 @@ fun TerminalScreen(player: MediaController) {
     
     var logMessage by remember { mutableStateOf("Ready.") }
 
-    // NEW: Request Notification Permission for Android 13+ Foreground Service
+    // Request Notification Permission for Android 13+ Foreground Service
     val permissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission()
     ) { isGranted -> 
@@ -160,30 +162,28 @@ fun TerminalScreen(player: MediaController) {
     }
 
     val context = LocalContext.current
-        val filePickerLauncher = rememberLauncherForActivityResult(
+    val filePickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
     ) { uri: Uri? ->
         if (uri != null) {
             val filePath = getPathFromUri(context, uri)
             if (filePath != null) {
+                try {
+                    context.contentResolver.takePersistableUriPermission(uri, android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                } catch (e: Exception) { /* Ignore */ }
+
+                // Use the direct file path with the file:// prefix
                 val mediaItem = MediaItem.fromUri("file://$filePath")
                 player.setMediaItem(mediaItem)
                 player.playWhenReady = true 
                 player.prepare()
                 currentTrackName = filePath.substringAfterLast("/")
+                logMessage = "Loaded: $currentTrackName"
+                
                 player.sendCustomCommand(SessionCommand("START_PAN", Bundle.EMPTY), Bundle.EMPTY)
             } else {
-                logMessage = "ERROR: Could not get file path from URI"
+                logMessage = "ERROR: Could not resolve file path."
             }
-        }
-    }
-            val mediaItem = MediaItem.fromUri(uri)
-            player.setMediaItem(mediaItem)
-            player.playWhenReady = true 
-            player.prepare()
-            currentTrackName = uri.lastPathSegment ?: "Unknown File"
-            
-            player.sendCustomCommand(SessionCommand("START_PAN", Bundle.EMPTY), Bundle.EMPTY)
         }
     }
 
@@ -340,13 +340,14 @@ fun BracketButton(label: String, isActive: Boolean = false, onClick: () -> Unit)
     }
 }
 
-fun getPathFromUri(context: android.content.Context, uri: Uri): String? {
-    val projection = arrayOf(android.provider.MediaStore.Audio.Media.DATA)
+// Helper function to convert content:// URI to a real file path
+fun getPathFromUri(context: Context, uri: Uri): String? {
+    val projection = arrayOf(MediaStore.Audio.Media.DATA)
     context.contentResolver.query(uri, projection, null, null, null)?.use { cursor ->
         if (cursor.moveToFirst()) {
-            val columnIndex = cursor.getColumnIndexOrThrow(android.provider.MediaStore.Audio.Media.DATA)
+            val columnIndex = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DATA)
             return cursor.getString(columnIndex)
         }
     }
-    return uri.path // Fallback
+    return uri.path
 }
