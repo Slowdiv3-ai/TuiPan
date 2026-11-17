@@ -75,6 +75,7 @@ fun AppContent(controllerFuture: ListenableFuture<MediaController>?) {
         controllerFuture?.let {
             it.addListener({
                 controller = it.get()
+                android.util.Log.d("TuiPan", "CONTROLLER CONNECTED IN UI")
             }, MoreExecutors.directExecutor())
         }
     }
@@ -129,6 +130,7 @@ fun TerminalScreen(player: MediaController) {
             }
             override fun onPlayerError(error: PlaybackException) {
                 logMessage = "ERROR: ${error.message}"
+                android.util.Log.e("TuiPan", "UI PLAYER ERROR", error)
             }
         }
         player.addListener(listener)
@@ -169,13 +171,14 @@ fun TerminalScreen(player: MediaController) {
         contract = ActivityResultContracts.GetContent()
     ) { uri: Uri? ->
         if (uri != null) {
-            logMessage = "Copying file to internal storage..."
-            
+            logMessage = "Copying file..."
             scope.launch {
                 val localFile = copyUriToCache(context, uri)
                 if (localFile != null) {
                     withContext(Dispatchers.Main) {
-                        val mediaItem = MediaItem.fromUri(Uri.fromFile(localFile))
+                        val uriToPlay = Uri.fromFile(localFile)
+                        Log.d("TuiPan", "SETTING MEDIA ITEM TO: $uriToPlay")
+                        val mediaItem = MediaItem.fromUri(uriToPlay)
                         player.setMediaItem(mediaItem)
                         player.playWhenReady = true 
                         player.prepare()
@@ -346,7 +349,6 @@ fun BracketButton(label: String, isActive: Boolean = false, onClick: () -> Unit)
     }
 }
 
-// Helper function to copy the selected content:// URI to a temporary file in the cache
 suspend fun copyUriToCache(context: android.content.Context, uri: Uri): File? {
     return withContext(Dispatchers.IO) {
         try {
