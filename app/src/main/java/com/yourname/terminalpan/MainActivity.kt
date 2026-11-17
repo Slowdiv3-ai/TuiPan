@@ -92,8 +92,8 @@ fun TerminalScreen(player: MediaController) {
     
     var selectedPattern by remember { mutableStateOf("smooth") }
     var speed by remember { mutableStateOf(1.0f) }
+    var panMode by remember { mutableStateOf("volume") } // "volume" or "frequency"
 
-    // Listen to actual player state
     DisposableEffect(player) {
         val listener = object : Player.Listener {
             override fun onIsPlayingChanged(isPlayingNow: Boolean) {
@@ -104,16 +104,15 @@ fun TerminalScreen(player: MediaController) {
         onDispose { player.removeListener(listener) }
     }
 
-    // Sync UI settings to Service
-    LaunchedEffect(selectedPattern, speed) {
+    LaunchedEffect(selectedPattern, speed, panMode) {
         val args = Bundle().apply {
             putString("pattern", selectedPattern)
             putFloat("speed", speed)
+            putBoolean("freqPan", panMode == "frequency")
         }
         player.sendCustomCommand(SessionCommand("SET_PAN", Bundle.EMPTY), args)
     }
 
-    // Fake UI visualizer
     LaunchedEffect(isPlaying, selectedPattern, speed) {
         if (isPlaying) {
             var time = 0f
@@ -139,15 +138,10 @@ fun TerminalScreen(player: MediaController) {
         contract = ActivityResultContracts.GetContent()
     ) { uri: Uri? ->
         if (uri != null) {
-            // Set media item and tell the player to play
             player.setMediaItem(MediaItem.fromUri(uri))
             player.prepare()
             currentTrackName = uri.lastPathSegment ?: "Unknown File"
-            
-            // This is crucial: play() on the controller triggers the Service to play
-            player.play() 
-            
-            // Also tell the Service to start the PanEngine
+            player.play()
             player.sendCustomCommand(SessionCommand("START_PAN", Bundle.EMPTY), Bundle.EMPTY)
         }
     }
@@ -182,7 +176,7 @@ fun TerminalScreen(player: MediaController) {
                     }
                     Text("[ $asciiBar ]", fontFamily = FontFamily.Monospace, color = Color(0xFFFFB300), fontSize = 20.sp, modifier = Modifier.align(Alignment.CenterHorizontally))
                     
-                    Spacer(modifier = Modifier.height(32.dp))
+                    Spacer(modifier = Modifier.height(24.dp))
                     
                     Text("pattern", color = Color.Gray, fontFamily = FontFamily.Monospace)
                     Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -192,7 +186,15 @@ fun TerminalScreen(player: MediaController) {
                         }
                     }
                     
-                    Spacer(modifier = Modifier.height(24.dp))
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    Text("mode", color = Color.Gray, fontFamily = FontFamily.Monospace)
+                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                        BracketButton("volume", isActive = panMode == "volume") { panMode = "volume" }
+                        BracketButton("frequency", isActive = panMode == "frequency") { panMode = "frequency" }
+                    }
+                    
+                    Spacer(modifier = Modifier.height(16.dp))
                     
                     Text("speed [${String.format("%.2f", speed)}x]", color = Color.Gray, fontFamily = FontFamily.Monospace)
                     Spacer(modifier = Modifier.height(8.dp))
@@ -208,7 +210,6 @@ fun TerminalScreen(player: MediaController) {
                 BracketButton("open") { filePickerLauncher.launch("audio/*") }
                 BracketButton("play") {
                     if (!isPlaying) {
-                        // If the player has no media, we can't play
                         if (player.mediaItemCount == 0) {
                             filePickerLauncher.launch("audio/*")
                         } else {
