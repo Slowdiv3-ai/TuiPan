@@ -3,6 +3,7 @@ package com.yourname.terminalpan
 import android.content.ComponentName
 import android.net.Uri
 import android.os.Bundle
+import android.util.Log // <-- ADDED THIS
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
@@ -75,7 +76,6 @@ fun AppContent(controllerFuture: ListenableFuture<MediaController>?) {
         controllerFuture?.let {
             it.addListener({
                 controller = it.get()
-                android.util.Log.d("TuiPan", "CONTROLLER CONNECTED IN UI")
             }, MoreExecutors.directExecutor())
         }
     }
@@ -172,6 +172,7 @@ fun TerminalScreen(player: MediaController) {
     ) { uri: Uri? ->
         if (uri != null) {
             logMessage = "Copying file..."
+            
             scope.launch {
                 val localFile = copyUriToCache(context, uri)
                 if (localFile != null) {
@@ -183,7 +184,7 @@ fun TerminalScreen(player: MediaController) {
                         player.playWhenReady = true 
                         player.prepare()
                         currentTrackName = localFile.name
-                        logMessage = "Loading: ${localFile.name}"
+                        logMessage = "Loaded: ${localFile.name}"
                         
                         player.sendCustomCommand(SessionCommand("START_PAN", Bundle.EMPTY), Bundle.EMPTY)
                     }
