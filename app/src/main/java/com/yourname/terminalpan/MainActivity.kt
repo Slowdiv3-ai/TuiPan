@@ -160,16 +160,23 @@ fun TerminalScreen(player: MediaController) {
     }
 
     val context = LocalContext.current
-    val filePickerLauncher = rememberLauncherForActivityResult(
+        val filePickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
     ) { uri: Uri? ->
         if (uri != null) {
-            try {
-                context.contentResolver.takePersistableUriPermission(uri, android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
-            } catch (e: Exception) {
-                // Ignore if it fails
+            val filePath = getPathFromUri(context, uri)
+            if (filePath != null) {
+                val mediaItem = MediaItem.fromUri("file://$filePath")
+                player.setMediaItem(mediaItem)
+                player.playWhenReady = true 
+                player.prepare()
+                currentTrackName = filePath.substringAfterLast("/")
+                player.sendCustomCommand(SessionCommand("START_PAN", Bundle.EMPTY), Bundle.EMPTY)
+            } else {
+                logMessage = "ERROR: Could not get file path from URI"
             }
-
+        }
+    }
             val mediaItem = MediaItem.fromUri(uri)
             player.setMediaItem(mediaItem)
             player.playWhenReady = true 
@@ -331,4 +338,15 @@ fun BracketButton(label: String, isActive: Boolean = false, onClick: () -> Unit)
     Box(modifier = Modifier.border(1.dp, borderColor).clickable { onClick() }.padding(horizontal = 8.dp, vertical = 6.dp)) {
         Text("[ $label ]", fontFamily = FontFamily.Monospace, color = textColor, fontSize = 12.sp)
     }
+}
+
+fun getPathFromUri(context: android.content.Context, uri: Uri): String? {
+    val projection = arrayOf(android.provider.MediaStore.Audio.Media.DATA)
+    context.contentResolver.query(uri, projection, null, null, null)?.use { cursor ->
+        if (cursor.moveToFirst()) {
+            val columnIndex = cursor.getColumnIndexOrThrow(android.provider.MediaStore.Audio.Media.DATA)
+            return cursor.getString(columnIndex)
+        }
+    }
+    return uri.path // Fallback
 }
