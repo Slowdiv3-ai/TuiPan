@@ -13,13 +13,12 @@ class PanAudioProcessor : BaseAudioProcessor() {
     @Volatile
     var useFrequencyPan: Boolean = false
 
-    // State variables for the low-pass filter
     private var lowPassL = 0f
     private var lowPassR = 0f
     private val cutoff = 0.05f 
 
+    // FIX 1: Must return true, otherwise Media3 bypasses this processor entirely
     override fun isActive(): Boolean {
-        // Always true so the processor stays in the chain
         return true
     }
 
@@ -28,7 +27,7 @@ class PanAudioProcessor : BaseAudioProcessor() {
             throw AudioProcessor.UnhandledAudioFormatException(inputAudioFormat)
         }
         
-        // CRITICAL FIX: Reset filter state on every new track or format change 
+        // FIX 2: Reset filter state on every new track or format change 
         // to prevent DC offset, clipping, or silence on resume.
         lowPassL = 0f
         lowPassR = 0f
@@ -45,7 +44,7 @@ class PanAudioProcessor : BaseAudioProcessor() {
 
         if (channelCount == 2) {
             while (inputBuffer.hasRemaining()) {
-                // FIX 1: Use getShort() to correctly read 16-bit little-endian samples
+                // FIX 3: Use getShort() to correctly read 16-bit little-endian samples
                 var leftSample = inputBuffer.getShort().toFloat()
                 var rightSample = inputBuffer.getShort().toFloat()
 
@@ -79,11 +78,11 @@ class PanAudioProcessor : BaseAudioProcessor() {
                 outputBuffer.putShort(outR)
             }
         } else {
-            // Mono fallback: just pass through
+            // Mono fallback: just pass through unchanged
             outputBuffer.put(inputBuffer)
         }
         
-        // FIX 2: DO NOT call outputBuffer.flip() here. 
+        // FIX 4: DO NOT call outputBuffer.flip() here! 
         // Media3's BaseAudioProcessor.getOutput() will automatically flip it 
         // before passing it to the AudioSink. Flipping it twice results in 0 bytes read (silence).
         
@@ -93,7 +92,7 @@ class PanAudioProcessor : BaseAudioProcessor() {
 
     override fun flush() {
         super.flush()
-        // Also reset state on flush (e.g., when seeking)
+        // Also reset state on flush (e.g., when seeking or pausing)
         lowPassL = 0f
         lowPassR = 0f
     }
