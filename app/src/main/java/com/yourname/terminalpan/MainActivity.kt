@@ -45,7 +45,7 @@ class MainActivity : ComponentActivity() {
 
     private val connection = object : ServiceConnection {
         override fun onServiceConnected(className: ComponentName, service: IBinder) {
-            val binder = service as PlaybackService.LocalBinder // We need a binder now
+            val binder = service as PlaybackService.LocalBinder
             boundService = binder.getService()
             isBound = true
             Log.d("TuiPan", "Service Connected")
@@ -73,6 +73,7 @@ class MainActivity : ComponentActivity() {
                     primary = Color(0xFFFFB300)
                 )
             ) {
+                // Pass the bound state and service to Compose
                 AppContent(isBound, boundService)
             }
         }
