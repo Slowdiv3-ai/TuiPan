@@ -5,6 +5,7 @@ import android.app.NotificationManager
 import android.app.Service
 import android.content.Context
 import android.content.Intent
+import android.os.Binder
 import android.os.Build
 import android.os.IBinder
 import android.util.Log
@@ -22,7 +23,10 @@ import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 
 class PlaybackService : Service() {
 
-    private var exoPlayer: ExoPlayer? = null
+    // Expose the player publicly so the UI can control it
+    var exoPlayer: ExoPlayer? = null
+        private set
+
     lateinit var panProcessor: PanAudioProcessor
         private set
     lateinit var panEngine: PanEngine
@@ -31,7 +35,8 @@ class PlaybackService : Service() {
     private val channelId = "tuipan_playback_channel"
     private val notificationId = 101
 
-    inner class LocalBinder : android.os.Binder() {
+    // The binder connects the UI to this service instance
+    inner class LocalBinder : Binder() {
         fun getService(): PlaybackService = this@PlaybackService
     }
 
@@ -47,7 +52,6 @@ class PlaybackService : Service() {
 
         createNotificationChannel()
         
-        // Force foreground immediately
         val notification = NotificationCompat.Builder(this, channelId)
             .setContentTitle("TuiPan")
             .setContentText("Audio engine active")
